@@ -1,7 +1,7 @@
 ///|
 pub fn make_case(op : Operation, seed : Int) -> Case raise TestError {
   let parameters : Array[Json] = []
-  for parameter in op.parameters { parameters.push({"name":field(parameter,"name"),"in":field(parameter,"in"),"value":generate_value(field(parameter,"schema"),seed)}) }
+  for parameter in op.parameters { let value=generate_value(field(parameter,"schema"),seed);guard validate_value(field(parameter,"schema"),value).is_empty() else {raise Invalid("generated parameter violates schema")};parameters.push({"name":field(parameter,"name"),"in":field(parameter,"in"),"value":value}) }
   let body = if op.request == null { null } else { generate_value(op.request,seed) }
   if op.request != null { guard validate_value(op.request,body).is_empty() else { raise Invalid("schema has no supported valid generated value") } }
   guard @utf8.encode(body.stringify()).length() <= 1048576 else { raise Invalid("case body budget exceeded") }

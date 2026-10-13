@@ -14,7 +14,8 @@ fn command(input : String) -> Json raise {
     "validate" => {
       let case_ : @engine.Case = @json.from_json(@engine.field(arguments,"case"))
       let status=match @engine.field(arguments,"status") { Number(n,..) => { guard n>=0.0 && n<=599.0 && n==n.to_int().to_double() else { raise @engine.Invalid("invalid HTTP status") }; n.to_int() }; _ => 0 }
-      {"finding":Json(@engine.validate_response(@engine.operation(spec,case_.operation_id),case_,status,@engine.field(arguments,"body"),json_valid=@engine.field(arguments,"json_valid") is True))}
+      let (body,valid) = if @engine.field(arguments,"raw") is String(raw) { try { (@engine.bounded_json(raw),true) } catch {_=>(null,false)} } else { (@engine.field(arguments,"body"),@engine.field(arguments,"json_valid") is True) }
+      {"finding":Json(@engine.validate_response(@engine.operation(spec,case_.operation_id),case_,status,body,json_valid=valid))}
     }
     "shrink" => {
       let case_ : @engine.Case = @json.from_json(@engine.field(arguments,"case"))

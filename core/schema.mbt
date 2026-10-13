@@ -40,7 +40,9 @@ fn resolve_schema(root : Json, schema : Json, depth : Int, budget? : Array[Int] 
   }
   for key in ["minimum", "maximum"] { if field(schema, key) != null { let value = numeric(field(schema, key), 1000001.0); guard value >= -1000000.0 && value <= 1000000.0 else { raise Invalid("numeric generation budget exceeded") } } }
   if field(schema, "enum") != null { guard field(schema, "enum") is Array(xs) && xs.length() > 0 && xs.length() <= 32 else { raise Invalid("invalid enum") } }
-  Json(values)
+  let normalized=Json(values)
+  if field(normalized,"enum") is Array(choices) { for choice in choices { guard validate_value(normalized,choice).is_empty() else { raise Invalid("enum value violates its schema") } } }
+  normalized
 }
 
 ///|
@@ -49,8 +51,8 @@ fn validate_inner(schema : Json, value : Json, pointer : String, depth : Int, bu
   if depth > 20 || budget[0] > 10000 { return [{code:"value_budget",pointer,message:"validation node/depth budget exceeded"}] }
   let issues = []
   fn add(code, message) { issues.push({code, pointer, message}) }
-  if value == null && field(schema, "nullable") is True { return issues }
   if field(schema, "enum") is Array(xs) { if !xs.contains(value) { add("enum", "value not in declared enum") } }
+  if value == null && field(schema, "nullable") is True { return issues }
   match field(schema, "type") {
     String("object") => match value {
       Object(map) => {
@@ -80,8 +82,9 @@ fn validate_inner(schema : Json, value : Json, pointer : String, depth : Int, bu
     }
     String("integer") | String("number") => match value {
       Number(n, ..) => {
-        if field(schema,"type") == "integer" && (n < -2147483648.0 || n > 2147483647.0 || n != n.to_int().to_double()) { add("integer","exact bounded integer expected") }
-        if n < numeric(field(schema,"minimum"),-1000000000000.0) || n > numeric(field(schema,"maximum"),1000000000000.0) { add("number_bounds","number outside bounds") }
+        if n.is_inf() || n.is_nan() { add("non_finite","finite JSON number required") }
+        if field(schema,"type") == "integer" && (n < -9007199254740991.0 || n > 9007199254740991.0 || n != n.trunc()) { add("integer","safe exact integer expected") }
+        if (field(schema,"minimum")!=null && n < numeric(field(schema,"minimum"),0.0)) || (field(schema,"maximum")!=null && n > numeric(field(schema,"maximum"),0.0)) { add("number_bounds","number outside bounds") }
       }
       _ => add("type","number expected")
     }

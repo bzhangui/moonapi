@@ -74,3 +74,50 @@ test "stateful captures bind actual identifiers without evaluation" {
   assert_true(next.expected_status==200)
   assert_true(json_pointer({"a/b":{"~x":[42]}},"/a~1b/~0x/0")==42)
 }
+
+///|
+test "numbers do not gain undeclared magnitude restrictions" {
+  assert_true(validate_value({"type":"number"},10000000000000.0).is_empty())
+  assert_true(validate_value({"type":"integer"},2147483648.0).is_empty())
+  assert_true(!validate_value({"type":"integer"},9007199254740992.0).is_empty())
+  assert_true(!validate_value({"type":"string","nullable":true,"enum":["a"]},null).is_empty())
+}
+
+///|
+test "local references unsupported features and cycles fail closed" {
+  let source : Json={"openapi":"3.0.3","components":{"schemas":{"Value":{"type":"string","enum":["a","b"]}}},"paths":{"/x":{"get":{"operationId":"x","responses":{"200":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Value"}}}}}}}}}
+  assert_true(parse_openapi(source.stringify()).operations.length()==1)
+  let invalid_schemas : Array[Json]=[{"oneOf":[{"type":"string"}]},{"$ref":"https://example.com/value"},{"type":"string","pattern":".*"},{"type":"integer","enum":["wrong"]}]
+  for schema in invalid_schemas {
+    let invalid : Json={"openapi":"3.0.3","paths":{"/x":{"get":{"operationId":"x","responses":{"200":{"content":{"application/json":{"schema":schema}}}}}}}}
+    assert_true(try{ignore(parse_openapi(invalid.stringify()));false}catch{_=>true})
+  }
+  let recursive : Json={"openapi":"3.0.3","components":{"schemas":{"Loop":{"$ref":"#/components/schemas/Loop"}}},"paths":{"/x":{"get":{"operationId":"x","responses":{"200":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Loop"}}}}}}}}}
+  assert_true(try{ignore(parse_openapi(recursive.stringify()));false}catch{_=>true})
+}
+
+///|
+test "source input and resource budgets reject before expansive work" {
+  assert_true(try{ignore(bounded_json("[".repeat(49)));false}catch{_=>true})
+  assert_true(try{ignore(plan(fixture_spec(),limit=257));false}catch{_=>true})
+  assert_true(try{ignore(generate_value({"type":"string","minLength":4097},1));false}catch{_=>true})
+  let inverted : Json={"type":"integer","minimum":0.1,"maximum":0.9}
+  assert_true(try{ignore(generate_value(inverted,1));false}catch{_=>true})
+}
+
+///|
+test "response errors distinguish access invalid JSON and explicit scenario assertions" {
+  let op=operation(fixture_spec(),"create")
+  let case_=make_case(op,42)
+  assert_true(!validate_response(op,case_,201,null,json_valid=false).passed)
+  assert_true(!validate_response(op,case_,429,{}).passed)
+  assert_true(!validate_response(op,{..case_,expected_status:200},201,{"id":1}).passed)
+  assert_true(!validate_response(op,case_,302,{}).passed)
+}
+
+///|
+test "missing and oversized scenario variables are rejected" {
+  assert_true(try{ignore(json_pointer({"id":1},"/missing"));false}catch{_=>true})
+  assert_true(try{ignore(scenario_case(fixture_spec(),{"operationId":"read","parameters":{"id":{"$from":"unknown"}}},{}));false}catch{_=>true})
+  assert_true(try{ignore(capture_values({"capture":{"data":"/text"}},{"text":Json("x".repeat(9000))},{}));false}catch{_=>true})
+}

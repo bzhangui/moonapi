@@ -9,6 +9,8 @@ export class Engine {
   constructor(source,options={}) {
     if(typeof source!=='string'||Buffer.byteLength(source)>524288)throw new Error('OpenAPI file exceeds 512 KiB');
     this.source=source;this.options={timeout:1500,totalTimeout:60000,limit:64,seed:42,allowWrite:false,allowRemote:false,shrinkWrite:false,shrinkBudget:32,...options};
+    for(const key of ['allowWrite','allowRemote','shrinkWrite'])if(typeof this.options[key]!=='boolean')throw new Error(key+' must be boolean');
+    if(this.options.bearerToken!==undefined&&(typeof this.options.bearerToken!=='string'||Buffer.byteLength(this.options.bearerToken)>4096||/[\x00-\x1f\x7f]/.test(this.options.bearerToken)))throw new Error('Invalid bearer token encoding');
     for(const [key,min,max] of [['timeout',10,30000],['totalTimeout',100,600000],['limit',1,256],['seed',0,1000000],['shrinkBudget',0,128]])if(!Number.isInteger(this.options[key])||this.options[key]<min||this.options[key]>max)throw new Error('Invalid '+key+' budget');
   }
   command(action,args={}) {const response=JSON.parse(globalThis.__moonapi_core(JSON.stringify({action,source:this.source,...args})));if(!response.ok)throw new Error(response.error);return response.value;}
@@ -33,9 +35,9 @@ export class Engine {
       const response=await fetch(target,{method:test.verb,headers,body:payload,redirect:'error',signal:AbortSignal.timeout(remaining)});
       let size=0;const chunks=[];
       for await(const chunk of response.body||[]){size+=chunk.length;if(size>262144)throw new Error('Response budget');chunks.push(chunk);}
-      const bytes=Buffer.concat(chunks),raw=bytes.toString('utf8');let body=null,jsonValid=false;
+      const bytes=Buffer.concat(chunks),raw=new TextDecoder('utf-8',{fatal:true}).decode(bytes);let body=null,jsonValid=false;
       if(raw){try{body=JSON.parse(raw);jsonValid=true;}catch{}}
-      observation={status:response.status,body,json_valid:jsonValid,response_bytes:size};
+      observation={status:response.status,body,raw,json_valid:jsonValid,response_bytes:size};
     }catch{observation={status:0,body:null,json_valid:false,response_bytes:0};}
     const finding=this.command('validate',{case:test,...observation}).finding;
     return {...observation,finding};
