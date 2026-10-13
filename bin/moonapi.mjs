@@ -1,10 +1,10 @@
 import fs from 'node:fs';
-import {Engine,loadCore,saveReport} from '../platform/runner.mjs';
-function options(args){const flags=new Set(['--allow-write','--allow-remote','--shrink-write','--save-repro']);const out={},positionals=[];for(let i=0;i<args.length;i++){const a=args[i];if(flags.has(a))out[a]=true;else if(a.startsWith('--')){if(!['--base','--seed','--limit','--timeout','--scenario','--shrink-budget'].includes(a)||i+1>=args.length)throw new Error('Unknown or missing option '+a);out[a]=args[++i];}else positionals.push(a);}return {out,positionals};}
+import {Engine,loadCore,saveReport,VERSION} from '../platform/runner.mjs';
+function options(args){const flags=new Set(['--allow-write','--allow-remote','--shrink-write','--save-repro']);const out={},positionals=[];for(let i=0;i<args.length;i++){const a=args[i];if(flags.has(a))out[a]=true;else if(a.startsWith('--')){if(!['--base','--seed','--limit','--timeout','--scenario','--shrink-budget'].includes(a)||i+1>=args.length)throw new Error('Unsupported or missing command-line option');out[a]=args[++i];}else positionals.push(a);}return {out,positionals};}
 try{
   const args=process.argv.slice(2),command=args.shift()||'help';
-  if(command==='help'){console.log('MoonAPI 0.1.0\nnode bin/moonapi.mjs plan spec.json\nnode bin/moonapi.mjs run spec.json --base http://127.0.0.1:PORT [--allow-write] [--scenario scenario.json] [--shrink-write]\nOnly test endpoints you own or are authorized to test.');}
-  else if(command==='version')console.log('MoonAPI 0.1.0');
+  if(command==='help'){console.log('MoonAPI '+VERSION+'\nnode bin/moonapi.mjs plan spec.json\nnode bin/moonapi.mjs run spec.json --base http://127.0.0.1:PORT [--allow-write] [--scenario scenario.json] [--shrink-write]\nOnly test endpoints you own or are authorized to test.');}
+  else if(command==='version')console.log('MoonAPI '+VERSION);
   else{
     if(!['plan','run'].includes(command))throw new Error('Unsupported command');const {out,positionals}=options(args);if(positionals.length!==1)throw new Error('Pass exactly one OpenAPI JSON file');
     const spec=positionals[0];if(!fs.statSync(spec).isFile()||fs.statSync(spec).size>524288)throw new Error('OpenAPI file exceeds budget');await loadCore();
