@@ -49,7 +49,12 @@ pub fn plan(
   }
   let out = []
   for op in spec.operations {
+    let sampled : Array[Int32] = []
     for sample in [seed, 0, 1] {
+      if sampled.contains(sample) {
+        continue
+      }
+      sampled.push(sample)
       if out.length() >= limit {
         return out
       }
@@ -147,7 +152,7 @@ pub fn validate_response(
       } else {
         field(op.responses, "default")
       }
-      if schema != null {
+      if schema != null && case_.verb != "HEAD" {
         if !json_valid {
           issues.push({
             code: "invalid_json",

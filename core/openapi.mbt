@@ -99,6 +99,9 @@ pub fn parse_openapi(source : String) -> Spec raise {
       }
       let mut request = null
       if field(declaration, "requestBody") != null {
+        guard verb != "get" && verb != "head" else {
+          raise Invalid("GET/HEAD request body unsupported")
+        }
         let content = field(field(declaration, "requestBody"), "content")
         guard fields(content) == ["application/json"] else {
           raise Invalid("only JSON request bodies supported")

@@ -11,6 +11,72 @@ test "bounded JSON and strict scalar contracts" {
 }
 
 ///|
+test "one sided bounds and minimum collections generate valid boundaries" {
+  let schemas : Array[Json] = [
+    { "type": "integer", "maximum": -1 },
+    { "type": "number", "maximum": -1000000 },
+    { "type": "integer", "minimum": 1000000 },
+    { "type": "array", "minItems": 3, "items": { "type": "boolean" } },
+  ]
+  for schema in schemas {
+    let resolved = resolve_schema({}, schema, 0)
+    for seed in [0, 1, 42] {
+      assert_true(
+        validate_value(resolved, generate_value(resolved, seed)).is_empty(),
+      )
+    }
+  }
+}
+
+///|
+test "capture pointers require canonical escaped syntax and array indices" {
+  assert_true(json_pointer({ "~1": 7 }, "/~01") == 7)
+  assert_true(json_pointer({ "01": 8 }, "/01") == 8)
+  for pointer in ["/00", "/01", "/~2", "/~"] {
+    assert_true(
+      try {
+        ignore(json_pointer([1, 2], pointer))
+        false
+      } catch {
+        _ => true
+      },
+    )
+  }
+}
+
+///|
+test "finding paths escape declared keys and redact undeclared observed names" {
+  let schema : Json = {
+    "type": "object",
+    "properties": { "a/b~": { "type": "integer" } },
+    "additionalProperties": false,
+  }
+  let known = validate_value(schema, { "a/b~": "bad" })
+  assert_true(known[0].pointer == "$/a~1b~0")
+  let unknown = validate_value(schema, { "controlled-private-key": 7 })
+  assert_true(unknown[0].pointer == "$/<undeclared>")
+}
+
+///|
+test "null typed schema constraints are not silently ignored" {
+  let schemas : Array[Json] = [
+    { "type": "string", "nullable": null },
+    { "type": "number", "maximum": null },
+    { "type": "array", "minItems": null, "items": { "type": "boolean" } },
+  ]
+  for schema in schemas {
+    assert_true(
+      try {
+        ignore(resolve_schema({}, schema, 0))
+        false
+      } catch {
+        _ => true
+      },
+    )
+  }
+}
+
+///|
 test "objects arrays required enum and nullable" {
   let schema : Json = {
     "type": "object",

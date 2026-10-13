@@ -12,6 +12,15 @@ pub fn json_pointer(value : Json, pointer : String) -> Json raise TestError {
   }
   let mut current = value
   for encoded in parts {
+    let chars = encoded.to_array()
+    for i = 0; i < chars.length(); i = i + 1 {
+      if chars[i] == '~' {
+        guard i + 1 < chars.length() &&
+          (chars[i + 1] == '0' || chars[i + 1] == '1') else {
+          raise Invalid("invalid JSON pointer escape")
+        }
+      }
+    }
     let part = encoded
       .replace_all(old="~1", new="/")
       .replace_all(old="~0", new="~")
@@ -23,6 +32,9 @@ pub fn json_pointer(value : Json, pointer : String) -> Json raise TestError {
       Array(xs) => {
         guard part.length() > 0 && part.length() <= 5 else {
           raise Invalid("invalid array pointer")
+        }
+        guard part == "0" || !part.has_prefix("0") else {
+          raise Invalid("noncanonical array pointer")
         }
         let mut index = 0
         for c in part {
@@ -83,6 +95,9 @@ pub fn scenario_case(
   let base = make_case(op, seed)
   let parameters : Array[Json] = []
   let provided = field(step, "parameters")
+  if fields(step).contains("parameters") {
+    check_object(provided, "scenario parameters must be object")
+  }
   for parameter in base.parameters {
     let name = text(field(parameter, "name"))
     let value = if fields(provided).contains(name) {
@@ -148,6 +163,9 @@ pub fn capture_values(
     output[name] = field(bindings, name)
   }
   let captures = field(step, "capture")
+  if fields(step).contains("capture") {
+    check_object(captures, "scenario capture must be object")
+  }
   guard fields(captures).length() <= 16 else {
     raise Invalid("capture count budget")
   }

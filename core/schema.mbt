@@ -41,6 +41,14 @@ fn resolve_schema(
     guard allowed.contains(key) else {
       raise Invalid("unsupported schema keyword: \{key}")
     }
+    if [
+        "properties", "required", "items", "enum", "nullable", "minimum", "maximum",
+        "minLength", "maxLength", "minItems", "maxItems", "additionalProperties",
+      ].contains(key) {
+      guard field(schema, key) != null else {
+        raise Invalid("null schema constraint unsupported")
+      }
+    }
   }
   let kind = text(field(schema, "type"))
   guard ["object", "array", "string", "integer", "number", "boolean"].contains(
@@ -117,8 +125,9 @@ fn resolve_schema(
       ("minLength", "maxLength"),
       ("minItems", "maxItems"),
     ] {
-    guard numeric(field(schema, lower), 0.0) <=
-      numeric(field(schema, upper), 1000000.0) else {
+    guard field(schema, lower) == null ||
+      field(schema, upper) == null ||
+      numeric(field(schema, lower), 0.0) <= numeric(field(schema, upper), 0.0) else {
       raise Invalid("inverted schema bounds")
     }
   }
@@ -197,7 +206,11 @@ fn validate_inner(
               if !map.contains(name) {
                 issues.push({
                   code: "required",
-                  pointer: pointer + "/" + name,
+                  pointer: pointer +
+                  "/" +
+                  name
+                  .replace_all(old="~", new="~0")
+                  .replace_all(old="/", new="~1"),
                   message: "required property missing",
                 })
               }
@@ -209,7 +222,7 @@ fn validate_inner(
               if field(schema, "additionalProperties") is False {
                 issues.push({
                   code: "additional_property",
-                  pointer: pointer + "/" + name,
+                  pointer: pointer + "/<undeclared>",
                   message: "undeclared property",
                 })
               }
@@ -218,7 +231,11 @@ fn validate_inner(
                 issue in validate_inner(
                   rule,
                   field(value, name),
-                  pointer + "/" + name,
+                  pointer +
+                  "/" +
+                  name
+                  .replace_all(old="~", new="~0")
+                  .replace_all(old="/", new="~1"),
                   depth + 1,
                   budget,
                 ) {
@@ -343,8 +360,10 @@ fn generate_inner(
       Json(value)
     }
     String("array") => {
+      let minimum = numeric(field(schema, "minItems"), 0.0)
+      let fallback = if minimum > 2.0 { minimum } else { 2.0 }
       let count = if seed == 1 {
-        numeric(field(schema, "maxItems"), 2.0).to_int()
+        numeric(field(schema, "maxItems"), fallback).to_int()
       } else {
         numeric(field(schema, "minItems"), 1.0).to_int()
       }
@@ -396,8 +415,23 @@ fn generate_inner(
       Json(value)
     }
     String("integer") | String("number") => {
-      let lower = numeric(field(schema, "minimum"), 0.0)
-      let upper = numeric(field(schema, "maximum"), lower + 10.0)
+      let declared_upper = numeric(field(schema, "maximum"), 10.0)
+      let fallback_lower = if declared_upper < 0.0 {
+        if declared_upper - 10.0 < -1000000.0 {
+          -1000000.0
+        } else {
+          declared_upper - 10.0
+        }
+      } else {
+        0.0
+      }
+      let lower = numeric(field(schema, "minimum"), fallback_lower)
+      let fallback_upper = if lower + 10.0 > 1000000.0 {
+        1000000.0
+      } else {
+        lower + 10.0
+      }
+      let upper = numeric(field(schema, "maximum"), fallback_upper)
       guard lower >= -1000000.0 && upper <= 1000000.0 && lower <= upper else {
         raise Invalid("generated numeric budget exceeded")
       }
