@@ -6,6 +6,7 @@ pub fn parse_openapi(source : String) -> Spec raise {
   check_object(paths,"paths required")
   guard fields(paths).length() > 0 && fields(paths).length() <= 128 else { raise Invalid("path budget exceeded") }
   let operations = []
+  let budget = [0]
   let seen : Map[String,Bool] = Map([])
   for path in fields(paths) {
     safe_name(path)
@@ -27,7 +28,7 @@ pub fn parse_openapi(source : String) -> Spec raise {
           safe_name(name)
           guard location == "query" || location == "path" else { raise Invalid("only query/path parameters supported") }
           guard field(parameter,"style") == null || field(parameter,"style") == "simple" || field(parameter,"style") == "form" else { raise Invalid("unsupported parameter style") }
-          let schema = resolve_schema(root,field(parameter,"schema"),0)
+          let schema = resolve_schema(root,field(parameter,"schema"),0,budget~)
           guard ["string","integer","number","boolean"].contains(text(field(schema,"type"))) else { raise Invalid("parameters must be scalar") }
           if location == "path" { guard field(parameter,"required") is True && path.contains("{"+name+"}") else { raise Invalid("path parameter must be required and appear in template") } }
           merged[location+":"+name] = {"name":Json(name),"in":Json(location),"required":field(parameter,"required"),"schema":schema}
@@ -40,7 +41,7 @@ pub fn parse_openapi(source : String) -> Spec raise {
       if field(declaration,"requestBody") != null {
         let content = field(field(declaration,"requestBody"),"content")
         guard fields(content) == ["application/json"] else { raise Invalid("only JSON request bodies supported") }
-        request = resolve_schema(root,field(field(content,"application/json"),"schema"),0)
+        request = resolve_schema(root,field(field(content,"application/json"),"schema"),0,budget~)
       }
       let responses : Map[String,Json] = Map([])
       let declarations = field(declaration,"responses")
@@ -51,7 +52,7 @@ pub fn parse_openapi(source : String) -> Spec raise {
         let content = field(field(declarations,status),"content")
         if content == null { responses[status] = null } else {
           guard fields(content) == ["application/json"] else { raise Invalid("only JSON responses supported") }
-          responses[status] = resolve_schema(root,field(field(content,"application/json"),"schema"),0)
+          responses[status] = resolve_schema(root,field(field(content,"application/json"),"schema"),0,budget~)
         }
       }
       operations.push({id,verb:verb.to_upper(),path,parameters,request,responses:Json(responses)})
