@@ -6,7 +6,7 @@
 4. README有目标/安装/使用/示例/预算。
 5. Windows/macOS/Linux远端检查/构建/测试/样例/运行包通过，见PUBLICATION。
 6. 核心样例与三个受控HTTP场景。
-7. 核心/集成维护通过，范围见QUALITY_REPORT。
+7. 0.1.1本机16核心/38Node通过；新版本远端与发布证据需分别核验，范围见QUALITY_REPORT。
 8. bzhangui/moonapi@0.1.0 已正式发布；匿名清单、注册表构建与独立四目标消费者通过，见PUBLICATION。
 9. Apache-2.0/NOTICE/标准库归属完整，无框架源码移植。
 
