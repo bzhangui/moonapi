@@ -1,3 +1,7 @@
-import { "bzhangui/moonapi/app" }
+import {
+  "bzhangui/moonapi/app",
+}
+
 pkgtype(kind: "executable")
+
 supported_targets = "+js"
