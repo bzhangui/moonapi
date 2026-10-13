@@ -118,8 +118,14 @@ pub fn parse_openapi(source : String) -> Spec raise {
         raise Invalid("response budget exceeded")
       }
       for status in fields(declarations) {
+        let mut digits = status.length() == 3
+        for c in status {
+          if c < '0' || c > '9' {
+            digits = false
+          }
+        }
         guard status == "default" ||
-          (status.length() == 3 && status >= "100" && status <= "599") else {
+          (digits && status >= "100" && status <= "599") else {
           raise Invalid("unsupported response status")
         }
         let content = field(field(declarations, status), "content")

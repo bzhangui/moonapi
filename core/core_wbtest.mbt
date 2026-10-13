@@ -58,6 +58,26 @@ fn fixture_spec() -> Spec raise {
 
 ///|
 test "OpenAPI local references deterministic operation ordering and budgets" {
+  for status in ["2a1", "5X9", "20", "600", "099"] {
+    let responses : Map[String, Json] = Map([])
+    responses[status] = {}
+    let malformed : Json = {
+      "openapi": "3.0.3",
+      "paths": {
+        "/probe": {
+          "get": { "operationId": "probe", "responses": Json(responses) },
+        },
+      },
+    }
+    assert_true(
+      try {
+        ignore(parse_openapi(malformed.stringify()))
+        false
+      } catch {
+        _ => true
+      },
+    )
+  }
   let spec = fixture_spec()
   assert_true(spec.operations.length() == 2)
   let cases = plan(spec, limit=8)
