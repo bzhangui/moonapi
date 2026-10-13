@@ -1,0 +1,99 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "bzhangui/moonapi/core"
+
+import {
+  "moonbitlang/core/debug",
+  "moonbitlang/core/json",
+}
+
+// Values
+pub fn bounded_json(String) -> Json raise
+
+pub fn capture_values(Json, Json, Json) -> Json raise TestError
+
+pub fn field(Json, String) -> Json
+
+pub fn generate_value(Json, Int) -> Json raise TestError
+
+pub fn json_pointer(Json, String) -> Json raise TestError
+
+pub fn make_case(Operation, Int) -> Case raise TestError
+
+pub fn operation(Spec, String) -> Operation raise TestError
+
+pub fn parse_openapi(String) -> Spec raise
+
+pub fn plan(Spec, seed? : Int, limit? : Int) -> Array[Case] raise TestError
+
+pub fn scenario_case(Spec, Json, Json, seed? : Int) -> Case raise TestError
+
+pub fn shrink_candidates(Operation, Case) -> Array[Case] raise TestError
+
+pub fn text(Json) -> String raise TestError
+
+pub fn validate_response(Operation, Case, Int, Json, json_valid? : Bool) -> Finding
+
+pub fn validate_value(Json, Json, pointer? : String) -> Array[Issue]
+
+// Errors
+pub(all) suberror TestError {
+  Invalid(String)
+} derive(@debug.Debug)
+pub fn TestError::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub(all) struct Case {
+  id : String
+  operation_id : String
+  verb : String
+  path : String
+  parameters : Array[Json]
+  body : Json
+  has_body : Bool
+  negative : Bool
+  expected_status : Int
+} derive(ToJson, @debug.Debug, @json.FromJson)
+pub fn Case::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn Case::to_json(Self) -> Json
+pub fn Case::to_repr(Self) -> @debug.Repr
+
+pub(all) struct Finding {
+  passed : Bool
+  fingerprint : String
+  issues : Array[Issue]
+} derive(ToJson, @debug.Debug, @json.FromJson)
+pub fn Finding::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn Finding::to_json(Self) -> Json
+pub fn Finding::to_repr(Self) -> @debug.Repr
+
+pub(all) struct Issue {
+  code : String
+  pointer : String
+  message : String
+} derive(ToJson, @debug.Debug, @json.FromJson)
+pub fn Issue::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn Issue::to_json(Self) -> Json
+pub fn Issue::to_repr(Self) -> @debug.Repr
+
+pub(all) struct Operation {
+  id : String
+  verb : String
+  path : String
+  parameters : Array[Json]
+  request : Json
+  responses : Json
+} derive(ToJson, @debug.Debug, @json.FromJson)
+pub fn Operation::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn Operation::to_json(Self) -> Json
+pub fn Operation::to_repr(Self) -> @debug.Repr
+
+pub(all) struct Spec {
+  operations : Array[Operation]
+} derive(ToJson, @debug.Debug, @json.FromJson)
+pub fn Spec::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
+pub fn Spec::to_json(Self) -> Json
+pub fn Spec::to_repr(Self) -> @debug.Repr
+
+// Type aliases
+
+// Traits

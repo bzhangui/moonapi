@@ -1,2 +1,5 @@
-import { "bzhangui/moonapi/core" @engine }
+import {
+  "bzhangui/moonapi/core" @engine,
+}
+
 pkgtype(kind: "executable")
