@@ -62,7 +62,7 @@ export class Engine {
       for(const step of scenario.steps){if(!verbs.has(step.operationId))throw new Error('Unknown scenario operation');if(!['GET','HEAD','OPTIONS'].includes(verbs.get(step.operationId))&&!this.options.allowWrite)throw new Error('Scenario requires --allow-write');}
       for(const step of scenario.steps){const test=this.command('scenario',{step,bindings}).case;const seen=await record(test);if(!seen.finding.passed)break;bindings=this.command('capture',{step,body:seen.body,bindings}).bindings;}
     }else{for(const test of this.plan()){if(!this.permitted(test)){skipped++;continue;}await record(test);}}
-    const report={format:1,tool:'MoonAPI',version:'0.1.0',seed:this.options.seed,controlled_simulation:false,real_user_pilot:false,executed:results.length,skipped,passed:results.filter(r=>r.passed).length,failed:results.filter(r=>!r.passed).length,complete:!scenario||results.length===scenario.steps.length,results};
+    const report={format:1,tool:'MoonAPI',version:'0.1.0',seed:this.options.seed,controlled_simulation:false,real_user_pilot:false,executed:results.length,skipped,passed:results.filter(r=>r.passed).length,failed:results.filter(r=>!r.passed).length,complete:skipped===0&&(!scenario||results.length===scenario.steps.length),results};
     if(saveRepro)report.reproductions=repros;
     return report;
   }

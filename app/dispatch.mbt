@@ -26,5 +26,5 @@ fn command(input : String) -> Json raise {
 
 ///|
 pub fn dispatch(input : String) -> String {
-  try { let output : Json = {"ok":true,"value":command(input)}; output.stringify() } catch { error => { let output : Json = {"ok":false,"error":"\{error}"}; output.stringify() } }
+  try { let output : Json = {"ok":true,"value":command(input)}; output.stringify() } catch { @engine.Invalid(message) => { let output : Json = {"ok":false,"error":Json(message)};output.stringify() }; _ => { let output : Json = {"ok":false,"error":"malformed description or command"}; output.stringify() } }
 }
