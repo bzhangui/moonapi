@@ -49,7 +49,7 @@ node bin/moonapi.mjs run examples/spec.json --base http://127.0.0.1:8080 --allow
 
 ## MoonBit 核心与维护
 
-核心已发布至 [Mooncakes 0.1.0](https://mooncakes.io/docs/bzhangui/moonapi)，已有 MoonBit 项目可运行 `moon add bzhangui/moonapi@0.1.0`。安装与独立四目标验证见 [发布记录](docs/PUBLICATION.md)；完整执行仍需下面说明的 Node 适配环境。
+核心安装入口：[Mooncakes](https://mooncakes.io/docs/bzhangui/moonapi)，当前修复版命令为 `moon add bzhangui/moonapi@0.1.1`。实际发布状态、安装与独立四目标验证见 [发布记录](docs/PUBLICATION.md)；完整执行仍需下面说明的 Node 适配环境。
 
 `bzhangui/moonapi/core` 支持 JS/Wasm/Wasm-GC/Native，提供 `parse_openapi`、`plan`、`validate_response`、`scenario_case`、`capture_values`、`shrink_candidates`。核心不做网络 I/O；完整 HTTP 执行当前用 Node/JS 适配，不是四目标网络客户端。发布状态见 [验收记录](docs/ACCEPTANCE.md)。
 
