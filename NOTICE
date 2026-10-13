@@ -1,0 +1,7 @@
+MoonAPI
+Copyright 2026 MoonAPI contributors
+Licensed under Apache-2.0.
+Uses MoonBit core (moonc 0.10.15), Copyright 2026 International Digital Economy Academy,
+licensed under Apache-2.0; license retained in licenses/MoonBit-Apache-2.0.txt.
+Node.js is an external runtime, not bundled. OpenAPI is a specification reference.
+No third-party API testing framework implementation was copied.
