@@ -114,12 +114,14 @@ pub fn scenario_case(
     base.body
   }
   let negative = field(step, "negative") is True
+  if fields(step).contains("negative") {guard field(step,"negative") is True || field(step,"negative") is False else {raise Invalid("scenario negative must be boolean")}}
   if op.request != null {
     guard validate_value(op.request, body).is_empty() != negative else {
       raise Invalid("scenario request validity disagrees with negative marker")
     }
   }
   let expected = numeric(field(step, "status"), 0.0)
+  if fields(step).contains("status") {guard field(step,"status") is Number(_,..) else {raise Invalid("scenario status must be number")}}
   guard expected == expected.to_int().to_double() &&
     (expected == 0.0 || (expected >= 100.0 && expected <= 599.0)) else {
     raise Invalid("invalid scenario status")

@@ -22,6 +22,8 @@ pub fn parse_openapi(source : String) -> Spec raise {
       raise Invalid("unsafe OpenAPI path")
     }
     let item = field(paths, path)
+    check_object(item,"path item must be object")
+    for key in fields(item) {guard ["get","post","put","patch","delete","head","options","parameters","summary","description","servers"].contains(key)||key.has_prefix("x-") else {raise Invalid("unsupported path item or HTTP method")}}
     for verb in ["get", "post", "put", "patch", "delete", "head", "options"] {
       let declaration = field(item, verb)
       if declaration == null {
@@ -56,6 +58,7 @@ pub fn parse_openapi(source : String) -> Spec raise {
             0,
             budget~,
           )
+          guard !(field(schema,"nullable") is True) else {raise Invalid("nullable scalar parameters unsupported")}
           guard ["string", "integer", "number", "boolean"].contains(
             text(field(schema, "type")),
           ) else {

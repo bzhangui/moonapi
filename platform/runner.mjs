@@ -20,8 +20,8 @@ export class Engine {
   async observe(base,test,deadline) {
     if(!this.permitted(test))throw new Error('Write methods require --allow-write');
     let route=test.path;const u=this.base(base);const query=[];
-    for(const p of test.parameters){if(p.in==='path')route=route.replaceAll('{'+p.name+'}',encodeURIComponent(String(p.value)));else query.push(p);}
-    if(route.includes('{')||route.includes('}')||route.includes('\\')||route.startsWith('//'))throw new Error('Unbound or unsafe path template');
+    for(const p of test.parameters){if(p.in==='path'){if(['.','..'].includes(String(p.value)))throw new Error('Dot-segment path value rejected');route=route.replaceAll('{'+p.name+'}',encodeURIComponent(String(p.value)));}else query.push(p);}
+    if(route.includes('{')||route.includes('}')||route.includes('\\')||route.startsWith('//')||decodeURIComponent(route).split('/').some(p=>p==='.'||p==='..'))throw new Error('Unbound or unsafe path template');
     const target=new URL(u.href.replace(/\/$/,'')+route);if(target.origin!==u.origin)throw new Error('Target origin changed');
     for(const p of query)target.searchParams.append(p.name,String(p.value));
     if(target.href.length>8192)throw new Error('URL byte budget exceeded');
