@@ -286,6 +286,14 @@ test("planning needs no write consent and rejects malformed dormant transitions"
   const m3 = model();
   m3.steps[0].parameters = { unexpected: 1 };
   assert.throws(() => runner.plan(m3));
+  for (const [op, expected] of [
+    ["gte", "not numeric"],
+    ["length", -1],
+  ]) {
+    const m = model();
+    m.steps[0].assert = [{ id: "bad_operand", pointer: "/ok", op, expected }];
+    assert.throws(() => runner.plan(m));
+  }
   for (const bad of [
     Infinity,
     NaN,

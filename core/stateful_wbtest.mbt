@@ -132,6 +132,25 @@ test "missing differs from null and comparison operators are explicit" {
   assert_true(
     !model_assertions(step, { "text": "ab", "n": 1 }, { "expected_n": 3 }).passed,
   )
+  let bad : Json = {
+    "id": "bad",
+    "assert": [
+      {
+        "id": "bad_operand",
+        "pointer": "/n",
+        "op": "gte",
+        "expected": { "$from": "threshold" },
+      },
+    ],
+  }
+  assert_true(
+    try {
+      ignore(model_assertions(bad, { "n": 3 }, { "threshold": "not a number" }))
+      false
+    } catch {
+      _ => true
+    },
+  )
 }
 
 ///|

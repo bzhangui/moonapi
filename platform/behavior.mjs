@@ -185,6 +185,9 @@ export class BehaviorEngine {
             step: legacyStep(step),
             bindings,
           }).case;
+          // Resolve predicate operand types before any request, so a malformed
+          // model is not reported as a reproducible defect in the target service.
+          this.engine.command("model-assert", { step, body: null, bindings });
           const seen = await this.engine.observe(base, test, deadline);
           let finding = seen.finding;
           if (!finding.passed)

@@ -16,6 +16,8 @@ assert 包含稳定 id、pointer、op，以及必要的 expected。支持 eq、n
 
 模型只接受严格 JSON 数据，不接受 getter/toJSON、稀疏数组、undefined/BigInt、非有限数或不精确整数的隐式转换；精确大整数业务数据应使用字符串及相应契约。complete 只表示选中的路径执行完整，model_coverage_complete 另列是否访问了模型转换，均不是穷尽所有可能路径。
 
+数值比较和长度断言的阈值类型会在当前请求之前验证；错误的字符串阈值或负长度属于模型配置错误，不作为服务缺陷。$from 是协议保留标记，不是任意脚本表达式。
+
 自动生成按状态前提和已产生的返回值筛选可用转换，优先较少访问的转换，固定 seed 决定并列选择。输出记录已覆盖转换及预算/无可用转换的停止原因；单条路径完整执行不代表所有转换、业务路径或 OpenAPI 全标准覆盖。
 
 ## 真正的序列缩减
@@ -38,6 +40,8 @@ node bin/moonapi-behavior.mjs run own-api.json --model own-behavior.json --base 
 ```
 
 --allow-reset 单独授权破坏性测试重置，--allow-write 授权所选写操作，--shrink-write 另外授权重复写序列；远程仍需 --allow-remote，Bearer/TLS、禁止重定向等旧门禁继续生效。库用 `BehaviorEngine.run(base,model,{reset,allowReset:true})`；钩子必须返回 true，接收 AbortSignal，并在超时/中止时停止自身工作。超时钩子若忽略信号，工具不能强制撤销用户自定义进程，本次运行会停止而不是继续重放。
+
+直接作为 Node 库使用时，先从 platform/runner.mjs 导入并 `await loadCore()`，再创建 BehaviorEngine；该方式加载已构建的本地核心，不从注册表自动安装编译器。完整可运行写法参见 examples/behavior-demo.mjs。
 
 默认总时限 60 秒、单请求/重置 1500 ms、缩减 32 次（最高 128）；可用 --total-timeout/--timeout/--shrink-budget 调整。模型 ≤64 KiB，初始状态 ≤32 个，变量 ≤64 个，步骤/转换 ≤64，单步断言 ≤32；沿用 HTTP/JSON 预算。时限/环境/绑定错误给出不完整结果，不当作业务成功。网络、鉴权、限流失败不盲目缩减。
 

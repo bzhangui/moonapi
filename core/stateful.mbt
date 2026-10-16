@@ -80,6 +80,22 @@ fn literal_model(value : Json) -> Unit raise TestError {
 }
 
 ///|
+fn assertion_operand(op : String, value : Json) -> Unit raise TestError {
+  if op == "gte" || op == "lte" || op == "length" {
+    guard value is Number(n, ..) &&
+      n >= -9007199254740991.0 &&
+      n <= 9007199254740991.0 else {
+      raise Invalid("numeric assertion requires a finite exact operand")
+    }
+    if op == "length" {
+      guard n >= 0.0 && n <= 1000000.0 && n == n.to_int().to_double() else {
+        raise Invalid("length assertion requires bounded nonnegative integer")
+      }
+    }
+  }
+}
+
+///|
 fn check_model_step(step : Json, initial : Json) -> Unit raise TestError {
   exact_keys(step, [
     "id", "operationId", "parameters", "body", "negative", "status", "capture", "requires",
@@ -154,6 +170,9 @@ fn check_model_step(step : Json, initial : Json) -> Unit raise TestError {
       }
       guard fields(a).contains("expected") == (op != "exists" && op != "absent") else {
         raise Invalid("assertion expected field mismatch")
+      }
+      if !(field(field(a, "expected"), "$from") is String(_)) {
+        assertion_operand(op, field(a, "expected"))
       }
     }
   }
@@ -241,6 +260,7 @@ pub fn model_assertions(
     let actual = Some(json_pointer(body, pointer)) catch { _ => None }
     let expected = bind_value(field(assertion, "expected"), bindings, 0)
     let op = text(field(assertion, "op"))
+    assertion_operand(op, expected)
     let passed = match (op, actual) {
       ("exists", Some(_)) | ("absent", None) => true
       ("eq", Some(v)) => v == expected
