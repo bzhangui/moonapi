@@ -20,8 +20,8 @@ export async function resetHook(source, base) {
     step: { operationId: "reset", status: 204 },
     bindings: {},
   }).case;
-  return async () => {
-    const seen = await engine.observe(base, test, Date.now() + 2000);
+  return async ({ signal } = {}) => {
+    const seen = await engine.observe(base, test, Date.now() + 2000, signal);
     if (!seen.finding.passed) throw new Error("Isolated fixture reset failed");
     return true;
   };

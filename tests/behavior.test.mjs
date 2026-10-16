@@ -210,6 +210,26 @@ test("reset deadlines are bounded and abort the hook without continuing requests
     assert.equal(report.complete, false);
     assert.equal(aborted, true);
     assert.equal(s.requests, 0);
+    const slow = await fixture({ slow: true });
+    try {
+      const engine = new Engine(source, { timeout: 1000 });
+      const current = engine.command("scenario", {
+        step: { operationId: "health" },
+        bindings: {},
+      }).case;
+      const controller = new AbortController();
+      controller.abort();
+      const observed = await engine.observe(
+        slow.base,
+        current,
+        Date.now() + 1000,
+        controller.signal,
+      );
+      assert.equal(observed.status, 0);
+      assert.equal(slow.requests, 0);
+    } finally {
+      await slow.close();
+    }
   }));
 test("generated state-driven traces are deterministic and validate before I/O", () =>
   runFixture({}, async (s, reset) => {

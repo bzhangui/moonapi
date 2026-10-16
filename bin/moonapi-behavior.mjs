@@ -101,11 +101,12 @@ try {
       }).case;
       if (!runner.engine.permitted(resetCase))
         throw new Error("Reset write requires --allow-write");
-      const reset = async () => {
+      const reset = async ({ signal }) => {
         const seen = await runner.engine.observe(
           out["--base"],
           resetCase,
           Date.now() + runner.engine.options.timeout,
+          signal,
         );
         return seen.finding.passed;
       };

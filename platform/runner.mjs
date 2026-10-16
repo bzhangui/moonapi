@@ -137,7 +137,7 @@ export class Engine {
       ["GET", "HEAD", "OPTIONS"].includes(test.verb) || this.options.allowWrite
     );
   }
-  async observe(base, test, deadline) {
+  async observe(base, test, deadline, signal) {
     if (!this.permitted(test))
       throw new Error("Write methods require --allow-write");
     let route = test.path;
@@ -185,7 +185,9 @@ export class Engine {
         headers,
         body: payload,
         redirect: "error",
-        signal: AbortSignal.timeout(remaining),
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(remaining)])
+          : AbortSignal.timeout(remaining),
       });
       let size = 0;
       const chunks = [];
