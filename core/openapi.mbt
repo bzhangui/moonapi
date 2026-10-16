@@ -1,8 +1,17 @@
 ///|
 pub fn parse_openapi(source : String) -> Spec raise {
   let root = bounded_json(source)
-  guard text(field(root, "openapi")).has_prefix("3.0.") else {
+  guard ["3.0.0", "3.0.1", "3.0.2", "3.0.3", "3.0.4"].contains(
+    text(field(root, "openapi")),
+  ) else {
     raise Invalid("OpenAPI 3.0 JSON required")
+  }
+  if fields(root).contains("security") {
+    guard field(root, "security") == Json::array([]) else {
+      raise Invalid(
+        "security requirement evaluation not implemented in experimental profile",
+      )
+    }
   }
   let paths = field(root, "paths")
   check_object(paths, "paths required")
@@ -38,6 +47,14 @@ pub fn parse_openapi(source : String) -> Spec raise {
         continue
       }
       let id = text(field(declaration, "operationId"))
+      if fields(declaration).contains("security") {
+        guard field(declaration, "security") == Json::array([]) else {
+          raise Invalid("operation security requirements not implemented")
+        }
+      }
+      guard field(declaration, "callbacks") == null else {
+        raise Invalid("callback receiver verification not implemented")
+      }
       safe_name(id)
       guard !seen.contains(id) else { raise Invalid("duplicate operationId") }
       seen[id] = true
@@ -51,13 +68,19 @@ pub fn parse_openapi(source : String) -> Spec raise {
         for parameter in array(list) {
           let name = text(field(parameter, "name"))
           let location = text(field(parameter, "in"))
+          guard !(field(parameter, "allowReserved") is True) &&
+            !(field(parameter, "allowEmptyValue") is True) else {
+            raise Invalid(
+              "parameter reserved/empty serialization not implemented",
+            )
+          }
           safe_name(name)
           guard location == "query" || location == "path" else {
             raise Invalid("only query/path parameters supported")
           }
           guard field(parameter, "style") == null ||
-            field(parameter, "style") == "simple" ||
-            field(parameter, "style") == "form" else {
+            (location == "path" && field(parameter, "style") == "simple") ||
+            (location == "query" && field(parameter, "style") == "form") else {
             raise Invalid("unsupported parameter style")
           }
           let schema = resolve_schema(
@@ -121,6 +144,12 @@ pub fn parse_openapi(source : String) -> Spec raise {
         raise Invalid("response budget exceeded")
       }
       for status in fields(declarations) {
+        guard field(field(declarations, status), "headers") == null &&
+          field(field(declarations, status), "links") == null else {
+          raise Invalid(
+            "response header/link verification not implemented in experimental profile",
+          )
+        }
         let mut digits = status.length() == 3
         for c in status {
           if c < '0' || c > '9' {

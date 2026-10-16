@@ -1,19 +1,113 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import {spawnSync} from 'node:child_process';
-import {createHash,randomUUID} from 'node:crypto';
-import {fileURLToPath} from 'node:url';
-const root=fileURLToPath(new URL('../',import.meta.url));
-const version=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).version;
-const built=spawnSync(process.execPath,['scripts/build.mjs'],{cwd:root,stdio:'inherit'});if(built.status!==0)throw new Error('Build failed');
-const parent=path.join(root,'.local/releases');fs.mkdirSync(parent,{recursive:true});
-const destination=path.join(parent,'moonapi-'+version+'-'+process.platform+'-'+process.arch+'-'+randomUUID().slice(0,8));fs.mkdirSync(destination);
-const allowed=['LICENSE','NOTICE','SECURITY.md','licenses/MoonBit-Apache-2.0.txt','docs/OPERATIONS.md','scripts/console.ps1','开始使用.cmd','_build/js/release/build/cmd/bridge/bridge.js','bin/moonapi.mjs','platform/runner.mjs','examples/spec.json','examples/scenario.json','examples/fixture.mjs','examples/demo.mjs'];
-const manifest={format:1,name:'MoonAPI',version,runtime:'Node >=22',files:{}};
-const hash=b=>createHash('sha256').update(b).digest('hex');
-for(const rel of allowed){const source=path.join(root,rel),target=path.join(destination,rel);if(!fs.statSync(source).isFile())throw new Error('Missing bundle file '+rel);fs.mkdirSync(path.dirname(target),{recursive:true});fs.copyFileSync(source,target,fs.constants.COPYFILE_EXCL);manifest.files[rel]=hash(fs.readFileSync(target));}
-for(const [rel,data] of [['README.md',fs.readFileSync(path.join(root,'docs/PORTABLE.md'))],['package.json',Buffer.from(JSON.stringify({name:'moonapi-portable',version,private:true,type:'module'}))]]){fs.writeFileSync(path.join(destination,rel),data,{flag:'wx'});manifest.files[rel]=hash(data);}
-fs.writeFileSync(path.join(destination,'manifest.json'),JSON.stringify(manifest,null,2),{flag:'wx'});
-const checked=spawnSync(process.execPath,[path.join(root,'scripts/verify-package.mjs'),destination],{stdio:'inherit'});if(checked.status!==0)throw new Error('Bundle invalid');
-console.log(JSON.stringify({ok:true,bundle:destination,files:Object.keys(manifest.files).length,node_bundled:false,broker_bundled:false,publicly_uploaded:false}));
-
+import fs from "node:fs";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
+const root = fileURLToPath(new URL("../", import.meta.url));
+const version = JSON.parse(
+  fs.readFileSync(path.join(root, "package.json"), "utf8"),
+).version;
+const built = spawnSync(process.execPath, ["scripts/build.mjs"], {
+  cwd: root,
+  stdio: "inherit",
+});
+if (built.status !== 0) throw new Error("Build failed");
+const parent = path.join(root, ".local/releases");
+fs.mkdirSync(parent, { recursive: true });
+const destination = path.join(
+  parent,
+  "moonapi-" +
+    version +
+    "-" +
+    process.platform +
+    "-" +
+    process.arch +
+    "-" +
+    randomUUID().slice(0, 8),
+);
+fs.mkdirSync(destination);
+const allowed = [
+  "LICENSE",
+  "NOTICE",
+  "SECURITY.md",
+  "licenses/MoonBit-Apache-2.0.txt",
+  "docs/OPERATIONS.md",
+  "scripts/console.ps1",
+  "开始使用.cmd",
+  "_build/js/release/build/cmd/bridge/bridge.js",
+  "bin/moonapi.mjs",
+  "platform/runner.mjs",
+  "platform/behavior.mjs",
+  "bin/moonapi-behavior.mjs",
+  "examples/behavior.json",
+  "examples/behavior-demo.mjs",
+  "examples/order-fixture.mjs",
+  "docs/BEHAVIOR_ENGINE.md",
+  "docs/REVIEW_CASES.md",
+  "docs/OPENAPI_3_0_MATRIX.md",
+  "examples/spec.json",
+  "examples/scenario.json",
+  "examples/fixture.mjs",
+  "examples/demo.mjs",
+];
+const manifest = {
+  format: 1,
+  name: "MoonAPI",
+  version,
+  runtime: "Node >=22",
+  files: {},
+};
+const hash = (b) => createHash("sha256").update(b).digest("hex");
+for (const rel of allowed) {
+  const source = path.join(root, rel),
+    target = path.join(destination, rel);
+  if (!fs.statSync(source).isFile())
+    throw new Error("Missing bundle file " + rel);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.copyFileSync(source, target, fs.constants.COPYFILE_EXCL);
+  manifest.files[rel] = hash(fs.readFileSync(target));
+}
+for (const [rel, data] of [
+  ["README.md", fs.readFileSync(path.join(root, "docs/PORTABLE.md"))],
+  [
+    "package.json",
+    Buffer.from(
+      JSON.stringify({
+        name: "moonapi-portable",
+        version,
+        private: true,
+        type: "module",
+      }),
+    ),
+  ],
+]) {
+  fs.writeFileSync(path.join(destination, rel), data, { flag: "wx" });
+  manifest.files[rel] = hash(data);
+}
+fs.writeFileSync(
+  path.join(destination, "manifest.json"),
+  JSON.stringify(manifest, null, 2),
+  { flag: "wx" },
+);
+const checked = spawnSync(
+  process.execPath,
+  [path.join(root, "scripts/verify-package.mjs"), destination],
+  { stdio: "inherit" },
+);
+if (checked.status !== 0) throw new Error("Bundle invalid");
+const smoke = spawnSync(
+  process.execPath,
+  [path.join(root, "scripts/smoke-package.mjs"), destination],
+  { stdio: "inherit", shell: false },
+);
+if (smoke.status !== 0) throw new Error("Portable functional smoke failed");
+console.log(
+  JSON.stringify({
+    ok: true,
+    bundle: destination,
+    files: Object.keys(manifest.files).length,
+    node_bundled: false,
+    broker_bundled: false,
+    publicly_uploaded: false,
+  }),
+);

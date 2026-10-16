@@ -13,11 +13,19 @@ pub fn capture_values(Json, Json, Json) -> Json raise TestError
 
 pub fn field(Json, String) -> Json
 
+pub fn generate_sequence(Json, Int, Int) -> Json raise TestError
+
 pub fn generate_value(Json, Int) -> Json raise TestError
 
 pub fn json_pointer(Json, String) -> Json raise TestError
 
 pub fn make_case(Operation, Int) -> Case raise TestError
+
+pub fn model_assertions(Json, Json, Json) -> Finding raise TestError
+
+pub fn model_effects(Json, Json) -> Json
+
+pub fn model_preconditions(Json, Json) -> Bool
 
 pub fn operation(Spec, String) -> Operation raise TestError
 
@@ -27,11 +35,15 @@ pub fn plan(Spec, seed? : Int, limit? : Int) -> Array[Case] raise TestError
 
 pub fn scenario_case(Spec, Json, Json, seed? : Int) -> Case raise TestError
 
+pub fn sequence_candidates(Json) -> Array[Json] raise TestError
+
 pub fn shrink_candidates(Operation, Case) -> Array[Case] raise TestError
 
 pub fn text(Json) -> String raise TestError
 
 pub fn validate_response(Operation, Case, Int, Json, json_valid? : Bool) -> Finding
+
+pub fn validate_sequence(Json) -> Unit raise TestError
 
 pub fn validate_value(Json, Json, pointer? : String) -> Array[Issue]
 

@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "name": "persisted_update",
+  "initial": {"phase": "empty"},
+  "steps": [
+    {"id":"noise_before","operationId":"health"},
+    {"id":"create","operationId":"create","requires":{"phase":"empty"},"set":{"phase":"created"},"body":{"name":"first"},"status":201,"capture":{"item_id":"/id"}},
+    {"id":"read_initial","operationId":"read","requires":{"phase":"created"},"parameters":{"id":{"$from":"item_id"}},"status":200,"assert":[{"id":"initial_name","pointer":"/name","op":"eq","expected":"first"}]},
+    {"id":"noise_middle","operationId":"health"},
+    {"id":"update","operationId":"update","requires":{"phase":"created"},"set":{"phase":"updated"},"parameters":{"id":{"$from":"item_id"}},"body":{"name":"second"},"status":200},
+    {"id":"readback","operationId":"read","requires":{"phase":"updated"},"parameters":{"id":{"$from":"item_id"}},"status":200,"assert":[{"id":"persisted_name","pointer":"/name","op":"eq","expected":"second"}]},
+    {"id":"delete","operationId":"delete","requires":{"phase":"updated"},"set":{"phase":"deleted"},"parameters":{"id":{"$from":"item_id"}},"status":204},
+    {"id":"read_deleted","operationId":"read","requires":{"phase":"deleted"},"parameters":{"id":{"$from":"item_id"}},"status":404}
+  ]
+}

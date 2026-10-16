@@ -1,12 +1,25 @@
 # MoonAPI
 
-以 MoonBit 为主要实现语言的接口自动行为测试引擎。根据 OpenAPI 3.0 JSON 生成有效、边界和无效请求，检查响应契约，串联有状态操作，并在保留同一失败指纹和请求有效性的前提下缩小失败输入。
+以 MoonBit 为主要实现语言的接口自动行为测试引擎。除契约检查外，使用声明式状态模型验证跨步骤业务不变量，并在显式重置隔离环境后，缩减仍能复现同一失败检查的操作序列。**完整 OpenAPI 3.0 JSON 兼容是后续申报目标，目前适配仍不完整，不能称为已全标准支持。**
 
 [源码](https://github.com/bzhangui/moonapi) · [CI](https://github.com/bzhangui/moonapi/actions) · [验收与测试](docs/QUALITY_REPORT.md) · [使用与限制](docs/OPERATIONS.md)
 
 ## 已实现与用途
 
-当前修复源码版本为 **0.1.1**。本轮隐私、时限、输入和契约边界修复见 [更新记录](CHANGELOG.md) 与 [复测报告](docs/QUALITY_REPORT.md)，实际注册表状态见 [发布记录](docs/PUBLICATION.md)。
+当前 GitHub 源码为 **0.2.0 整改版**，本轮未发布 Mooncakes 新版本；注册表正式版本仍为 0.1.1。不要将 0.2 新 API 当作 0.1.1 已发布接口。整改意见与实际案例见 [整改路线](docs/REVIEW_REMEDIATION.md)、[可运行反例](docs/REVIEW_CASES.md)，完整标准缺口见 [兼容矩阵](docs/OPENAPI_3_0_MATRIX.md)。
+
+- 新状态引擎：initial/requires/set 抽象状态、返回 ID/基准值依赖、跨步骤 eq/ne/exists/absent/length/gte/lte 断言。
+- 确定性状态驱动选路；逐次真实重置、稳定性确认、保持依赖/状态前提的整条操作序列缩减和独立最终见证重放。
+- 受控反例：更新未持久化（8→3 步）、删除未生效（8→4 步）、重复取消多返库存（6→5 步），以及对应健康对照；不是外部用户试点。
+- 旧场景不再在污染状态上自动做单请求缩减；需要状态安全缩减时使用新模式。新模式不擅自更改输入/预期值来制造假失败。
+
+```sh
+npm run build
+npm run demo:behavior
+node bin/moonapi-behavior.mjs plan examples/spec.json --model examples/behavior.json
+```
+
+[状态引擎使用指南](docs/BEHAVIOR_ENGINE.md) 说明重置、重复写入许可、模型语法与预算。以下原有契约/单请求功能继续保留：
 
 - 解析有界 OpenAPI JSON：本地组件引用、对象、数组、字符串、整数、数值、布尔、枚举、必填及长度/范围约束。
 - 固定 seed 的可复现生成：边界值、请求体类型错误和缺少必填字段；不声称穷尽所有接口。
@@ -51,7 +64,7 @@ node bin/moonapi.mjs run examples/spec.json --base http://127.0.0.1:8080 --allow
 
 核心安装入口：[Mooncakes](https://mooncakes.io/docs/bzhangui/moonapi)，当前修复版命令为 `moon add bzhangui/moonapi@0.1.1`。实际发布状态、安装与独立四目标验证见 [发布记录](docs/PUBLICATION.md)；完整执行仍需下面说明的 Node 适配环境。
 
-`bzhangui/moonapi/core` 支持 JS/Wasm/Wasm-GC/Native，提供 `parse_openapi`、`plan`、`validate_response`、`scenario_case`、`capture_values`、`shrink_candidates`。核心不做网络 I/O；完整 HTTP 执行当前用 Node/JS 适配，不是四目标网络客户端。发布状态见 [验收记录](docs/ACCEPTANCE.md)。
+`bzhangui/moonapi/core` 支持 JS/Wasm/Wasm-GC/Native，提供 `parse_openapi`、`plan`、`validate_response`、`scenario_case`、`capture_values`、`shrink_candidates`。0.2 源码另增 validate_sequence、generate_sequence、model_assertions、model_preconditions、model_effects、sequence_candidates，见 examples/behavior_core；这些新 API 尚未发布到注册表。核心不做网络 I/O；完整 HTTP 执行用 Node/JS 适配，不是四目标网络客户端。发布状态见 [验收记录](docs/ACCEPTANCE.md)。
 
 ```sh
 moon run examples/core --target wasm

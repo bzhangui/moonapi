@@ -1,0 +1,12 @@
+/.local/
+/_build/
+/.git/
+/.mooncakes/
+/node_modules/
+/coverage/
+*申报书*.md
+.env*
+*.log
+*.pem
+*.key
+credentials.json

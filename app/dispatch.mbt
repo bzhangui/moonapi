@@ -2,6 +2,52 @@
 fn command(input : String) -> Json raise {
   let arguments = @engine.bounded_json(input)
   let action = @engine.text(@engine.field(arguments, "action"))
+  match action {
+    "sequence-generate" => {
+      let seed : Int32 = @json.from_json(@engine.field(arguments, "seed"))
+      let limit : Int32 = @json.from_json(@engine.field(arguments, "limit"))
+      return @engine.generate_sequence(
+        @engine.field(arguments, "model"),
+        seed,
+        limit,
+      )
+    }
+    "sequence-check" => {
+      @engine.validate_sequence(@engine.field(arguments, "model"))
+      return { "valid": true }
+    }
+    "sequence-candidates" =>
+      return {
+        "candidates": Json(
+          @engine.sequence_candidates(@engine.field(arguments, "model")),
+        ),
+      }
+    "model-preconditions" =>
+      return {
+        "enabled": @engine.model_preconditions(
+          @engine.field(arguments, "step"),
+          @engine.field(arguments, "bindings"),
+        ),
+      }
+    "model-effects" =>
+      return {
+        "bindings": @engine.model_effects(
+          @engine.field(arguments, "step"),
+          @engine.field(arguments, "bindings"),
+        ),
+      }
+    "model-assert" =>
+      return {
+        "finding": Json(
+          @engine.model_assertions(
+            @engine.field(arguments, "step"),
+            @engine.field(arguments, "body"),
+            @engine.field(arguments, "bindings"),
+          ),
+        ),
+      }
+    _ => ()
+  }
   let spec = @engine.parse_openapi(
     @engine.text(@engine.field(arguments, "source")),
   )
@@ -30,16 +76,28 @@ fn command(input : String) -> Json raise {
         "operations": Json(spec.operations),
       }
     }
-    "scenario" =>
+    "scenario" => {
+      let seed = match @engine.field(arguments, "seed") {
+        Number(n, ..) => {
+          guard n >= 0.0 && n <= 1000000.0 && n == n.to_int().to_double() else {
+            raise @engine.Invalid("invalid scenario seed")
+          }
+          n.to_int()
+        }
+        Null => 42
+        _ => raise @engine.Invalid("invalid scenario seed")
+      }
       {
         "case": Json(
           @engine.scenario_case(
             spec,
             @engine.field(arguments, "step"),
             @engine.field(arguments, "bindings"),
+            seed~,
           ),
         ),
       }
+    }
     "capture" =>
       {
         "bindings": @engine.capture_values(

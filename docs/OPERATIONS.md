@@ -1,5 +1,7 @@
 # 操作、格式与故障
 
+0.2 新状态模式使用 `bin/moonapi-behavior.mjs`，语法、独立重置、权限和范围见 [BEHAVIOR_ENGINE](BEHAVIOR_ENGINE.md)，反例见 [REVIEW_CASES](REVIEW_CASES.md)。旧 `--scenario` 仍可串联，但不在污染状态上自动缩减失败步骤；场景生成现在遵循配置 seed。下文格式 1 单请求报告与新格式 2 状态报告分开，不混计缩减证据。
+
 ## 预算
 
 CLI 描述 ≤512 KiB、场景 ≤64 KiB；核心 JSON ≤4 MiB/48 层，展开 schema ≤4096 节点/16 层。路径128、操作256、参数32、属性64、枚举32。生成树≤10000节点，字符串/数组≤4096；生成数值范围±1000000。响应整数为 JS 安全整数；精确 uint64 业务数据应用字符串 schema。
