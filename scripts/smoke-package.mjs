@@ -25,17 +25,36 @@ try {
     force: false,
     errorOnExist: true,
   });
-  const run = (relative) => {
-    const r = spawnSync(process.execPath, [path.join(copy, relative)], {
-      cwd: copy,
-      encoding: "utf8",
-      shell: false,
-      timeout: 30000,
-      maxBuffer: 1048576,
-    });
+  const run = (relative, args = []) => {
+    const r = spawnSync(
+      process.execPath,
+      [path.join(copy, relative), ...args],
+      {
+        cwd: copy,
+        encoding: "utf8",
+        shell: false,
+        timeout: 30000,
+        maxBuffer: 1048576,
+      },
+    );
     assert.equal(r.status, 0, r.stderr);
     return r.stdout;
   };
+  const planned = JSON.parse(
+    run("bin/moonapi.mjs", ["plan", "examples/spec.json"]),
+  );
+  assert.ok(planned.cases.length > 0);
+  assert.equal(planned.inputs_hidden, true);
+  const modelPlan = JSON.parse(
+    run("bin/moonapi-behavior.mjs", [
+      "plan",
+      "examples/spec.json",
+      "--model",
+      "examples/behavior.json",
+    ]),
+  );
+  assert.equal(modelPlan.steps.length, 8);
+  assert.equal(modelPlan.inputs_hidden, true);
   run("examples/demo.mjs");
   const behavior = JSON.parse(run("examples/behavior-demo.mjs"));
   assert.equal(behavior.results.length, 5);
@@ -52,6 +71,7 @@ try {
     JSON.stringify({
       portable_functional_smoke: true,
       core_rebuild_required: false,
+      cli_plans: 2,
       stateful_cases: 5,
       reports_private: true,
     }),

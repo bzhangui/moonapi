@@ -41,7 +41,11 @@ node bin/moonapi-behavior.mjs run own-api.json --model own-behavior.json --base 
 
 --allow-reset 单独授权破坏性测试重置，--allow-write 授权所选写操作，--shrink-write 另外授权重复写序列；远程仍需 --allow-remote，Bearer/TLS、禁止重定向等旧门禁继续生效。库用 `BehaviorEngine.run(base,model,{reset,allowReset:true})`；钩子必须返回 true，接收 AbortSignal，并在超时/中止时停止自身工作。超时钩子若忽略信号，工具不能强制撤销用户自定义进程，本次运行会停止而不是继续重放。
 
+CLI 只把契约通过、且不是 202 的 2xx 视作重置成功；即使描述声明了 400/404 等响应，也不能继续执行路径。202 只表示接受异步工作，不证明隔离环境已还原。如服务仅提供异步重置，请在库调用中实现有界完成轮询并尊重 AbortSignal，验证完成后再返回 true；工具不内置或自动猜测该服务的轮询协议。返回 2xx 本身仍不能证明数据库、队列或外部世界已隔离，需操作者核实。
+
 直接作为 Node 库使用时，先从 platform/runner.mjs 导入并 `await loadCore()`，再创建 BehaviorEngine；该方式加载已构建的本地核心，不从注册表自动安装编译器。完整可运行写法参见 examples/behavior-demo.mjs。
+
+`plan(model,{steps,checkPermissions})` 拒绝未知选项；checkPermissions 必须是真正布尔值。默认仅生成计划，不隐式授予写入或重置权限。CLI 模型须是有效 UTF-8 JSON，可带 BOM；非法字节拒绝，解析错误不打印私人片段或文件路径。
 
 默认总时限 60 秒、单请求/重置 1500 ms、缩减 32 次（最高 128）；可用 --total-timeout/--timeout/--shrink-budget 调整。模型 ≤64 KiB，初始状态 ≤32 个，变量 ≤64 个，步骤/转换 ≤64，单步断言 ≤32；沿用 HTTP/JSON 预算。时限/环境/绑定错误给出不完整结果，不当作业务成功。网络、鉴权、限流失败不盲目缩减。
 

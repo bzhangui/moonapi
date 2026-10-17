@@ -74,7 +74,11 @@ export class BehaviorEngine {
   constructor(source, options = {}) {
     this.engine = new Engine(source, options);
   }
-  plan(model, { steps = 32, checkPermissions = false } = {}) {
+  plan(model, options = {}) {
+    own(options, ["steps", "checkPermissions"]);
+    const { steps = 32, checkPermissions = false } = options;
+    if (typeof checkPermissions !== "boolean")
+      throw new Error("checkPermissions must be boolean");
     if (
       !model ||
       typeof model !== "object" ||

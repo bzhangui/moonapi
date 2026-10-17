@@ -37,6 +37,7 @@ const allowed = [
   "_build/js/release/build/cmd/bridge/bridge.js",
   "bin/moonapi.mjs",
   "platform/runner.mjs",
+  "platform/input.mjs",
   "platform/behavior.mjs",
   "bin/moonapi-behavior.mjs",
   "examples/behavior.json",

@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import { readTextInput, readJsonInput } from "../platform/input.mjs";
 import { Engine, loadCore, saveReport, VERSION } from "../platform/runner.mjs";
 function options(args) {
   const flags = new Set([
@@ -46,11 +46,9 @@ try {
     const { out, positionals } = options(args);
     if (positionals.length !== 1)
       throw new Error("Pass exactly one OpenAPI JSON file");
-    const spec = positionals[0];
-    if (!fs.statSync(spec).isFile() || fs.statSync(spec).size > 524288)
-      throw new Error("OpenAPI file exceeds budget");
+    const source = readTextInput(positionals[0], 524288);
     await loadCore();
-    const engine = new Engine(fs.readFileSync(spec, "utf8"), {
+    const engine = new Engine(source, {
       seed: out["--seed"] === undefined ? 42 : Number(out["--seed"]),
       limit: out["--limit"] === undefined ? 64 : Number(out["--limit"]),
       timeout: out["--timeout"] === undefined ? 1500 : Number(out["--timeout"]),
@@ -84,9 +82,7 @@ try {
       if (!out["--base"]) throw new Error("--base required");
       let scenario = null;
       if (out["--scenario"]) {
-        if (fs.statSync(out["--scenario"]).size > 65536)
-          throw new Error("Scenario file too large");
-        scenario = JSON.parse(fs.readFileSync(out["--scenario"], "utf8"));
+        scenario = readJsonInput(out["--scenario"], 65536);
       }
       const report = await engine.run(out["--base"], {
         scenario,

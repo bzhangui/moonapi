@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import { readTextInput, readJsonInput } from "../platform/input.mjs";
 import { BehaviorEngine } from "../platform/behavior.mjs";
 import { loadCore, saveReport, VERSION } from "../platform/runner.mjs";
 function argumentsFor(args) {
@@ -37,15 +37,6 @@ function argumentsFor(args) {
   }
   return { out, paths };
 }
-const read = (file, limit) => {
-  try {
-    if (!file || !fs.statSync(file).isFile() || fs.statSync(file).size > limit)
-      throw new Error();
-    return fs.readFileSync(file, "utf8");
-  } catch {
-    throw new Error("Missing or oversized input file");
-  }
-};
 try {
   const args = process.argv.slice(2),
     command = args.shift() || "help";
@@ -58,8 +49,8 @@ try {
       throw new Error("Unsupported behavior command");
     const { out, paths } = argumentsFor(args);
     if (paths.length !== 1) throw new Error("Pass one API description");
-    const source = read(paths[0], 524288),
-      model = JSON.parse(read(out["--model"], 65536));
+    const source = readTextInput(paths[0], 524288),
+      model = readJsonInput(out["--model"], 65536);
     await loadCore();
     const number = (key, fallback) =>
       out[key] === undefined ? fallback : Number(out[key]);
@@ -108,7 +99,13 @@ try {
           Date.now() + runner.engine.options.timeout,
           signal,
         );
-        return seen.finding.passed;
+        // A declared error, or 202 accepted-but-not-completed, is not a clean reset.
+        return (
+          seen.status >= 200 &&
+          seen.status < 300 &&
+          seen.status !== 202 &&
+          seen.finding.passed
+        );
       };
       const report = await runner.run(out["--base"], model, {
         reset,

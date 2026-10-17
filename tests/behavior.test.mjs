@@ -330,3 +330,19 @@ test("planning needs no write consent and rejects malformed dormant transitions"
   sparse.steps[1].body = { name: new Array(2) };
   assert.throws(() => runner.plan(sparse));
 });
+
+test("behavior plan options reject misspellings and misleading permission values", () => {
+  const runner = new BehaviorEngine(source);
+  for (const invalid of [
+    { step: 1 },
+    { checkPermissions: "false" },
+    { checkPermissions: 1 },
+    [],
+    null,
+  ])
+    assert.throws(() => runner.plan(model(), invalid));
+  assert.equal(
+    runner.plan(model(), { checkPermissions: false }).trace.steps.length,
+    8,
+  );
+});

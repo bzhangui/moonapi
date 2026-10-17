@@ -60,6 +60,8 @@ node bin/moonapi.mjs run examples/spec.json --base http://127.0.0.1:8080 --allow
 
 报告在 `.local/reports/`。退出码 0：本次计划全部执行无失败；1：失败、不完整或未执行；2：配置/输入/运行错误。通过不是业务正确性、安全性或完整覆盖证明。
 
+CLI 输入必须是有效 UTF-8（可带 BOM），描述和模型/场景分别按 512 KiB、64 KiB 实际读取上限检查；错误信息不回显文件路径或 JSON 片段。行为 CLI 的重置必须已完成并返回契约通过的 2xx，202 或已声明的 4xx 不能当作重置成功；详见状态引擎指南。
+
 ## MoonBit 核心与维护
 
 核心安装入口：[Mooncakes](https://mooncakes.io/docs/bzhangui/moonapi)，当前修复版命令为 `moon add bzhangui/moonapi@0.1.1`。实际发布状态、安装与独立四目标验证见 [发布记录](docs/PUBLICATION.md)；完整执行仍需下面说明的 Node 适配环境。

@@ -8,6 +8,8 @@ CLI 描述 ≤512 KiB、场景 ≤64 KiB；核心 JSON ≤4 MiB/48 层，展开 
 
 默认用例64/最高256，请求/响应256 KiB，URL8192；请求1500ms/总60秒。超预算失败，不隐式当作覆盖。
 
+描述、场景和状态模型文件需有效 UTF-8，可带 BOM。按实际读取字节检查上限，非法编码和 JSON 语法报去敏配置错误（退出码 2），不会把替换字符当作原始数据或回显私人路径/内容。行为 CLI 的重置只接受契约通过且非 202 的 2xx；其他结果停止，不执行后续路径。
+
 ## 场景与报告
 
 参照 examples/scenario.json。operationId 定义操作，body 具体输入，parameters 覆盖变量；`{"$from":"item_id"}` 引用之前捕获，capture 使用 JSON Pointer，status 指定本步状态。遇失败停止，不回滚已发生写入。
