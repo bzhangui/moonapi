@@ -6,7 +6,7 @@
 
 ## 已实现与用途
 
-当前源码为 **0.3.0 接入改进版**，本轮未发布 Mooncakes 新版本；注册表正式版本仍为 0.1.1。不要将新 API 当作 0.1.1 已发布接口。针对接入成本、兼容性及增量价值的反馈，见 [本轮整改](docs/REVIEW_REMEDIATION.md)、[工具对照](docs/COMPARISON.md)、[独立后端证据](docs/INTEGRATION_EVIDENCE.md)；完整标准缺口见 [兼容矩阵](docs/OPENAPI_3_0_MATRIX.md)。
+本模块版本为 **0.3.0 接入改进版**，包含状态行为与自动 CRUD 计算核心；旧版 0.1.1 不包含这些新增 API。安装版本和独立消费核验见 [发布记录](docs/PUBLICATION.md)。针对接入成本、兼容性及增量价值的反馈，见 [本轮整改](docs/REVIEW_REMEDIATION.md)、[工具对照](docs/COMPARISON.md)、[独立后端证据](docs/INTEGRATION_EVIDENCE.md)；完整标准缺口见 [兼容矩阵](docs/OPENAPI_3_0_MATRIX.md)。
 
 ### 优先使用：免手写模型的资源回归
 
@@ -80,9 +80,9 @@ CLI 输入必须是有效 UTF-8（可带 BOM），描述和模型/场景分别�
 
 ## MoonBit 核心与维护
 
-核心安装入口：[Mooncakes](https://mooncakes.io/docs/bzhangui/moonapi)，当前修复版命令为 `moon add bzhangui/moonapi@0.1.1`。实际发布状态、安装与独立四目标验证见 [发布记录](docs/PUBLICATION.md)；完整执行仍需下面说明的 Node 适配环境。
+核心安装入口：[Mooncakes](https://mooncakes.io/docs/bzhangui/moonapi)，0.3.0 安装命令为 `moon add bzhangui/moonapi@0.3.0`。实际发布状态、安装与独立四目标验证见 [发布记录](docs/PUBLICATION.md)；完整执行仍需下面说明的 Node 适配环境。
 
-`bzhangui/moonapi/core` 支持 JS/Wasm/Wasm-GC/Native，提供 `parse_openapi`、`plan`、`validate_response`、`scenario_case`、`capture_values`、`shrink_candidates`。源码还提供 validate_sequence、generate_sequence、model_assertions、model_preconditions、model_effects、sequence_candidates、crud_plan，见 examples/behavior_core；这些新 API 尚未发布到注册表。核心不做网络 I/O；完整 HTTP 执行用 Node/JS 适配，不是四目标网络客户端。发布状态见 [验收记录](docs/ACCEPTANCE.md)。
+`bzhangui/moonapi/core` 支持 JS/Wasm/Wasm-GC/Native，提供 `parse_openapi`、`plan`、`validate_response`、`scenario_case`、`capture_values`、`shrink_candidates`。0.3.0 还提供 validate_sequence、generate_sequence、model_assertions、model_preconditions、model_effects、sequence_candidates、crud_plan，见 examples/behavior_core 和 examples/crud_core。核心不做网络 I/O；完整 HTTP 执行用同版本 GitHub/运行包中的 Node/JS 适配，不是 moon add 后即可获得的四目标网络客户端。发布状态见 [验收记录](docs/ACCEPTANCE.md)。
 
 ```sh
 moon run examples/core --target wasm

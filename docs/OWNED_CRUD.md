@@ -1,6 +1,6 @@
 # 无手写状态机的 CRUD 接入
 
-0.3.0 源码新增 `OwnedCrudEngine`；注册表 0.1.1 **没有此 API**。适用于同步 REST 资源的持久化回归，不是任意业务的自动建模器。
+0.3.0 的 MoonBit `crud_plan` 为可发布计算核心；`OwnedCrudEngine` 是同版本 GitHub/运行包里的 Node HTTP 执行适配，不能把 moon add 等同于安装四目标网络客户端。旧注册表 0.1.1 没有新计算 API。实际版本核验见 [发布记录](PUBLICATION.md)。适用于同步 REST 资源的持久化回归，不是任意业务的自动建模器。
 
 ```sh
 npm run build

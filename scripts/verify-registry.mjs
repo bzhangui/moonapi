@@ -5,7 +5,9 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { moon, moonEnv } from "./build.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
-const version = process.argv[2] || "0.1.1";
+const version =
+  process.argv[2] ||
+  JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
 if (!/^\d+\.\d+\.\d+$/.test(version))
   throw new Error("Explicit release version required");
 const parent = path.join(root, ".local/registry-consumers");
@@ -39,6 +41,47 @@ fs.writeFileSync(
 fs.writeFileSync(path.join(regressionFolder, "regression.mbt"), regression, {
   flag: "wx",
 });
+const parts = version.split(".").map(Number);
+const atLeast = (minor) => parts[0] > 0 || parts[1] >= minor;
+const examples = ["."];
+for (const [enabled, example] of [
+  [atLeast(2), "behavior_core"],
+  [atLeast(3), "crud_core"],
+]) {
+  if (!enabled) continue;
+  const destination = path.join(consumer, example);
+  fs.mkdirSync(destination);
+  for (const filename of ["moon.pkg", "main.mbt"])
+    fs.copyFileSync(
+      path.join(root, "examples", example, filename),
+      path.join(destination, filename),
+      fs.constants.COPYFILE_EXCL,
+    );
+  examples.push(example);
+}
+if (atLeast(3)) {
+  // Consume only public API from the downloaded dependency, never internal sources.
+  const compatibility = `///|
+test "registered shared read and write schema preserves directional constraints" {
+  let schema : Json = {"type":"object","required":["id","secret","name"],"additionalProperties":false,"properties":{"id":{"type":"integer","readOnly":true},"secret":{"type":"string","writeOnly":true},"name":{"type":"string"}}}
+  let spec_json : Json = {"openapi":"3.0.3","paths":{"/shared":{"post":{"requestBody":{"content":{"application/json":{"schema":schema}}},"responses":{"200":{"content":{"application/json":{"schema":schema}}}}}}}}
+  let spec = @engine.parse_openapi(spec_json.stringify())
+  let op = spec.operations[0]
+  assert_eq(op.id,"POST /shared")
+  let cases = @engine.plan(spec,limit=1)
+  let body = cases[0].body
+  assert_true(@engine.field(body,"id") == null)
+  assert_true(@engine.field(body,"secret") != null)
+  assert_true(@engine.validate_response(op,cases[0],200,{"id":1,"name":"yes"}).passed)
+  assert_true(!@engine.validate_response(op,cases[0],200,{"name":"yes"}).passed)
+}
+`;
+  fs.writeFileSync(
+    path.join(regressionFolder, "compatibility.mbt"),
+    compatibility,
+    { flag: "wx" },
+  );
+}
 function run(args) {
   const result = spawnSync(moon, args, {
     cwd: consumer,
@@ -52,7 +95,7 @@ run(["add", "bzhangui/moonapi@" + version]);
 for (const target of ["js", "wasm", "wasm-gc", "native"]) {
   run(["check", "--target", target, "--deny-warn"]);
   run(["build", "--target", target, "--release", "--deny-warn"]);
-  run(["run", ".", "--target", target]);
+  for (const example of examples) run(["run", example, "--target", target]);
   run(["test", "--target", target, "--deny-warn"]);
 }
 fs.writeFileSync(
@@ -64,6 +107,10 @@ fs.writeFileSync(
       registry_dependency: true,
       local_source_copy: false,
       targets: ["js", "wasm", "wasm-gc", "native"],
+      executable_consumers: examples,
+      stateful_api_verified: atLeast(2),
+      crud_api_verified: atLeast(3),
+      directional_schema_verified: atLeast(3),
       ok: true,
     },
     null,
