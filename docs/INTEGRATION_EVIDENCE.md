@@ -24,7 +24,7 @@ node scripts/interop-pocketbase.mjs --pocketbase /absolute/path/to/pocketbase
 node scripts/interop-pocketbase.mjs --pocketbase .local/interop/pocketbase-0.40.5/bin/pocketbase.exe --keep-fixture
 ```
 
-脚本只启动自有进程、绑定 127.0.0.1 随机端口、建立 `.local/interop-runs/` 新数据库，且退出前停止自有进程；不连接用户已有 PocketBase，不使用真实备份或凭据。默认会尝试删除本次独占目录，删除失败时整个命令失败，不冒充清理成功。`--keep-fixture` 明确保留私有合成数据库，回执 `synthetic_fixture_retained=true`、`temporary_data_removed=false`。Windows 本轮保留模式验证通过；前几轮自动目录删除被系统拒绝，夹具留在本机、没有上传，不将该项算作通过。Linux CI 使用默认删除模式，状态以具体工作流为准。
+脚本只启动自有进程、绑定 127.0.0.1 随机端口、建立 `.local/interop-runs/` 新数据库，且退出前停止自有进程；不连接用户已有 PocketBase，不使用真实备份或凭据。默认会尝试删除本次独占目录，删除失败时整个命令失败，不冒充清理成功。`--keep-fixture` 明确保留私有合成数据库，回执 `synthetic_fixture_retained=true`、`temporary_data_removed=false`。Windows 本轮保留模式验证通过；前几轮自动目录删除被系统拒绝，夹具留在本机、没有上传，不将该项算作通过。[Linux CI 39768768848](https://github.com/bzhangui/moonapi/actions/runs/39768768848) 的默认模式实际通过，回执 `temporary_process_removed=true`、`synthetic_fixture_retained=false`、`temporary_data_removed=true`，不能把该 Linux 结果写成本机 Windows 删除通过。
 
 ## 不能扩大的结论
 

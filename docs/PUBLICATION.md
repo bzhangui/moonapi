@@ -6,6 +6,10 @@
 
 本机 26 核心 × 四目标、78 Node、原有与新 CRUD 演示和三个跨包核心样例通过，核心覆盖率 1178/1390；31 文件运行包的哈希核验与复制品功能冒烟通过。独立 PocketBase 的两类合成集合六轮通过，Windows 保留夹具模式的文件清理边界见 INTEGRATION_EVIDENCE。提交与远端 CI 将按实际完成结果记录，不引用旧 CI 代替。
 
+功能提交 `2ee9aad2693e0a832c561ac29bbca9bc14dac13b` 已推送，匿名 README HTTP 200、远端 SHA 一致。[CI 39768768848](https://github.com/bzhangui/moonapi/actions/runs/39768768848) 的 Windows/macOS/Linux 检查、构建、测试、样例与运行包全部通过；Linux 独立 PocketBase 六轮、重启哨兵及自有数据库目录删除通过。此前本机维护提交 `5ea4467` 也一并进入公开历史。
+
+该次 CI 提示 Node 20 Action 运行时弃用，本次另将官方 checkout/setup-node 升级至已核对的 Node 24 版本并固定完整 SHA，关闭 checkout 凭据留存和隐式包缓存；项目本身仍在 Node 22 CI 上测试。第三方 MSVC 初始化 Action 上游 v1.13.0 仍声明 Node 20，当前托管 runner 强制 Node 24 执行且测试通过，Windows 可能继续提示该依赖弃用；未把弃用提示伪装成失败或私自修改上游分发代码。后续工作流变更的状态以对应 [main CI](https://github.com/bzhangui/moonapi/actions/workflows/ci.yml) 为准。
+
 ## 2026-10-17 本地维护，尚未推送/发布
 
 本轮在公开基线 `c124756cdb8eb6d69a3de93386bf8f97bd2d8c0b` 上修复输入错误回显、重置错误响应误判及计划选项验证，补充严格 UTF-8/实际字节上限、许可归属回归；本机 21 核心 × 四目标、62 Node、原三场景与五行为场景及运行包功能回归通过。源码版本保留 0.2.0；这些新增补丁尚未进入远端，未运行 moon publish。
