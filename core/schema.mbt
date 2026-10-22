@@ -13,21 +13,10 @@ fn resolve_schema(
     raise Invalid("schema depth or recursive reference unsupported")
   }
   check_object(schema, "schema must be object")
-  if field(schema, "$ref") is String(reference) {
-    guard reference.has_prefix("#/components/schemas/") &&
-      reference.length() <= 512 else {
-      raise Invalid("only local component schema references supported")
-    }
-    let name = reference
-      .strip_prefix("#/components/schemas/")
-      .unwrap()
-      .to_owned()
-    guard !name.contains("/") && !name.contains("~") else {
-      raise Invalid("escaped schema reference names unsupported")
-    }
+  if fields(schema).contains("$ref") {
     return resolve_schema(
       root,
-      field(field(field(root, "components"), "schemas"), name),
+      resolve_component(root, schema, "schemas", 0),
       depth + 1,
       budget~,
     )
@@ -35,7 +24,7 @@ fn resolve_schema(
   let allowed = [
     "type", "properties", "required", "items", "enum", "nullable", "minimum", "maximum",
     "minLength", "maxLength", "minItems", "maxItems", "additionalProperties", "description",
-    "title", "example", "default",
+    "title", "example", "default", "readOnly", "writeOnly",
   ]
   for key in fields(schema) {
     guard allowed.contains(key) else {
@@ -44,6 +33,7 @@ fn resolve_schema(
     if [
         "properties", "required", "items", "enum", "nullable", "minimum", "maximum",
         "minLength", "maxLength", "minItems", "maxItems", "additionalProperties",
+        "readOnly", "writeOnly",
       ].contains(key) {
       guard field(schema, key) != null else {
         raise Invalid("null schema constraint unsupported")
@@ -51,6 +41,17 @@ fn resolve_schema(
     }
   }
   let kind = text(field(schema, "type"))
+  for key in ["readOnly", "writeOnly"] {
+    if fields(schema).contains(key) {
+      guard field(schema, key) is True || field(schema, key) is False else {
+        raise Invalid("readOnly/writeOnly must be boolean")
+      }
+    }
+  }
+  guard !(field(schema, "readOnly") is True &&
+    field(schema, "writeOnly") is True) else {
+    raise Invalid("readOnly and writeOnly cannot both be true")
+  }
   guard ["object", "array", "string", "integer", "number", "boolean"].contains(
     kind,
   ) else {

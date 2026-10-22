@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-24.04, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -43,3 +43,14 @@ jobs:
         run: node scripts/validate.mjs
       - name: Portable runtime bundle
         run: node scripts/package.mjs
+      - name: Independent PocketBase 0.40.5 SQLite integration (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          backend_dir="$RUNNER_TEMP/moonapi-pocketbase-0.40.5"
+          mkdir "$backend_dir"
+          curl --fail --show-error --location --max-time 120 'https://github.com/pocketbase/pocketbase/releases/download/v0.40.5/checksums.txt' --output "$backend_dir/checksums.txt"
+          curl --fail --show-error --location --max-time 120 --max-filesize 67108864 'https://github.com/pocketbase/pocketbase/releases/download/v0.40.5/pocketbase_0.40.5_linux_amd64.zip' --output "$backend_dir/pocketbase_0.40.5_linux_amd64.zip"
+          (cd "$backend_dir" && sha256sum --check --ignore-missing checksums.txt && unzip -q pocketbase_0.40.5_linux_amd64.zip)
+          node scripts/interop-pocketbase.mjs --pocketbase "$backend_dir/pocketbase"

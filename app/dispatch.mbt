@@ -52,6 +52,14 @@ fn command(input : String) -> Json raise {
     @engine.text(@engine.field(arguments, "source")),
   )
   match action {
+    "crud-plan" =>
+      @engine.crud_plan(
+        spec,
+        @engine.text(@engine.field(arguments, "collection")),
+        @engine.text(@engine.field(arguments, "field")),
+        @engine.text(@engine.field(arguments, "marker")),
+        @engine.text(@engine.field(arguments, "changed")),
+      )
     "plan" => {
       let seed = match @engine.field(arguments, "seed") {
         Number(n, ..) => {

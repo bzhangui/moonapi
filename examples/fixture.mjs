@@ -10,6 +10,9 @@ export async function fixture({
   staleUpdate = false,
   ignoreDelete = false,
   unstableRead = false,
+  ownershipDrift = false,
+  loseCreateResponse = false,
+  foreignCreateId = false,
 } = {}) {
   const items = new Map();
   let id = 0,
@@ -77,13 +80,15 @@ export async function fixture({
       else {
         const item = { id: ++id, name: body.name };
         items.set(id, item);
-        reply(201, item);
+        if (loseCreateResponse) res.destroy();
+        else reply(201, foreignCreateId ? { ...item, id: 90000 } : item);
       }
     } else if (/^\/items\/\d+$/.test(url.pathname)) {
       const key = Number(url.pathname.split("/").at(-1));
       if (!items.has(key)) reply(404, { error: "not found" });
       else if (req.method === "GET") {
         readCount++;
+        if (ownershipDrift) items.set(key, { ...items.get(key), name: "foreign-owner" });
         reply(
           200,
           unstableRead && readCount % 2

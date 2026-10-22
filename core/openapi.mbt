@@ -46,7 +46,11 @@ pub fn parse_openapi(source : String) -> Spec raise {
       if declaration == null {
         continue
       }
-      let id = text(field(declaration, "operationId"))
+      let id = if fields(declaration).contains("operationId") {
+        text(field(declaration, "operationId"))
+      } else {
+        verb.to_upper() + " " + path
+      }
       if fields(declaration).contains("security") {
         guard field(declaration, "security") == Json::array([]) else {
           raise Invalid("operation security requirements not implemented")
@@ -65,7 +69,8 @@ pub fn parse_openapi(source : String) -> Spec raise {
             raise Invalid("parameters must be array")
           }
         }
-        for parameter in array(list) {
+        for entry in array(list) {
+          let parameter = resolve_component(root, entry, "parameters", 0)
           let name = text(field(parameter, "name"))
           let location = text(field(parameter, "in"))
           guard !(field(parameter, "allowReserved") is True) &&
@@ -125,15 +130,24 @@ pub fn parse_openapi(source : String) -> Spec raise {
         guard verb != "get" && verb != "head" else {
           raise Invalid("GET/HEAD request body unsupported")
         }
-        let content = field(field(declaration, "requestBody"), "content")
+        let request_body = resolve_component(
+          root,
+          field(declaration, "requestBody"),
+          "requestBodies",
+          0,
+        )
+        let content = field(request_body, "content")
         guard fields(content) == ["application/json"] else {
           raise Invalid("only JSON request bodies supported")
         }
-        request = resolve_schema(
-          root,
-          field(field(content, "application/json"), "schema"),
-          0,
-          budget~,
+        request = project_schema(
+          resolve_schema(
+            root,
+            field(field(content, "application/json"), "schema"),
+            0,
+            budget~,
+          ),
+          true,
         )
       }
       let responses : Map[String, Json] = Map([])
@@ -144,8 +158,14 @@ pub fn parse_openapi(source : String) -> Spec raise {
         raise Invalid("response budget exceeded")
       }
       for status in fields(declarations) {
-        guard field(field(declarations, status), "headers") == null &&
-          field(field(declarations, status), "links") == null else {
+        let response = resolve_component(
+          root,
+          field(declarations, status),
+          "responses",
+          0,
+        )
+        guard field(response, "headers") == null &&
+          field(response, "links") == null else {
           raise Invalid(
             "response header/link verification not implemented in experimental profile",
           )
@@ -160,18 +180,21 @@ pub fn parse_openapi(source : String) -> Spec raise {
           (digits && status >= "100" && status <= "599") else {
           raise Invalid("unsupported response status")
         }
-        let content = field(field(declarations, status), "content")
+        let content = field(response, "content")
         if content == null {
           responses[status] = null
         } else {
           guard fields(content) == ["application/json"] else {
             raise Invalid("only JSON responses supported")
           }
-          responses[status] = resolve_schema(
-            root,
-            field(field(content, "application/json"), "schema"),
-            0,
-            budget~,
+          responses[status] = project_schema(
+            resolve_schema(
+              root,
+              field(field(content, "application/json"), "schema"),
+              0,
+              budget~,
+            ),
+            false,
           )
         }
       }

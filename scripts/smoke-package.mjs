@@ -55,6 +55,12 @@ try {
   );
   assert.equal(modelPlan.steps.length, 8);
   assert.equal(modelPlan.inputs_hidden, true);
+  const crudPlan = JSON.parse(run("bin/moonapi-crud.mjs", ["plan", "examples/spec.json", "--collection", "/items", "--field", "name"]));
+  assert.equal(crudPlan.steps.length, 6);
+  assert.equal(crudPlan.inputs_hidden, true);
+  const crud = JSON.parse(run("examples/crud-demo.mjs"));
+  assert.equal(crud.cases.length, 2);
+  assert.equal(crud.cases[1].minimized_steps, 3);
   run("examples/demo.mjs");
   const behavior = JSON.parse(run("examples/behavior-demo.mjs"));
   assert.equal(behavior.results.length, 5);
@@ -71,7 +77,7 @@ try {
     JSON.stringify({
       portable_functional_smoke: true,
       core_rebuild_required: false,
-      cli_plans: 2,
+      cli_plans: 3,
       stateful_cases: 5,
       reports_private: true,
     }),

@@ -1,5 +1,9 @@
 # 操作、格式与故障
 
+## 0.3 接入补充
+
+优先使用 [免手写模型 CRUD](OWNED_CRUD.md)；原行为 CLI 和契约 CLI 不变。CRUD 使用 `--allow-write --allow-cleanup`，重复写缩减另加 `--shrink-write`；没有全局 reset。超时后的未知写入、归属漂移与清理失败都不能当作已恢复干净。副作用、异步资源与复杂业务继续使用显式隔离模型。独立后端的上游版本、复现命令和证据边界见 [INTEGRATION_EVIDENCE](INTEGRATION_EVIDENCE.md)。
+
 0.2 新状态模式使用 `bin/moonapi-behavior.mjs`，语法、独立重置、权限和范围见 [BEHAVIOR_ENGINE](BEHAVIOR_ENGINE.md)，反例见 [REVIEW_CASES](REVIEW_CASES.md)。旧 `--scenario` 仍可串联，但不在污染状态上自动缩减失败步骤；场景生成现在遵循配置 seed。下文格式 1 单请求报告与新格式 2 状态报告分开，不混计缩减证据。
 
 ## 预算

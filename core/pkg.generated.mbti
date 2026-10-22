@@ -11,6 +11,8 @@ pub fn bounded_json(String) -> Json raise
 
 pub fn capture_values(Json, Json, Json) -> Json raise TestError
 
+pub fn crud_plan(Spec, String, String, String, String) -> Json raise TestError
+
 pub fn field(Json, String) -> Json
 
 pub fn generate_sequence(Json, Int, Int) -> Json raise TestError

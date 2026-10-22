@@ -74,6 +74,9 @@ export class BehaviorEngine {
   constructor(source, options = {}) {
     this.engine = new Engine(source, options);
   }
+  async observe(base, test, deadline) {
+    return this.engine.observe(base, test, deadline);
+  }
   plan(model, options = {}) {
     own(options, ["steps", "checkPermissions"]);
     const { steps = 32, checkPermissions = false } = options;
@@ -192,7 +195,7 @@ export class BehaviorEngine {
           // Resolve predicate operand types before any request, so a malformed
           // model is not reported as a reproducible defect in the target service.
           this.engine.command("model-assert", { step, body: null, bindings });
-          const seen = await this.engine.observe(base, test, deadline);
+          const seen = await this.observe(base, test, deadline);
           let finding = seen.finding;
           if (!finding.passed)
             finding = {

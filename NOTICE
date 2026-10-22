@@ -5,3 +5,7 @@ Uses MoonBit core (moonc 0.10.15), Copyright 2025 International Digital Economy 
 licensed under Apache-2.0; license retained in licenses/MoonBit-Apache-2.0.txt.
 Node.js is an external runtime, not bundled. OpenAPI is a specification reference.
 No third-party API testing framework implementation was copied.
+Schemathesis is referenced for a documented capability comparison only.
+The optional integration script starts a separately obtained PocketBase 0.40.5
+binary (MIT, Copyright 2022-present Gani Georgiev); it is not redistributed.
+Test collection migrations and adapter contracts are original MoonAPI fixtures.

@@ -10,3 +10,6 @@
 
 不要用演示程序对生产环境做故障注入。操作与交付边界见 docs/OPERATIONS.md、SECURITY.md。源码和安装更新见 https://github.com/bzhangui/moonapi 。
 
+## 0.3 免手写模型入口
+
+本运行包同时提供 `node examples/crud-demo.mjs` 和 `node bin/moonapi-crud.mjs plan examples/spec.json --collection /items --field name`。实际接口运行须按 `docs/OWNED_CRUD.md` 另行授权写入、清理与重复写，且只用于可控测试环境。运行包不包含 PocketBase 二进制或独立后端测试脚本，不需要 MoonBit SDK 重新编译。
