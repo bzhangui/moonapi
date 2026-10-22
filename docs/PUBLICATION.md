@@ -1,10 +1,19 @@
 # 发布与复现记录
 
-## 2026-10-22：0.3.0 注册表发布准备
+## 2026-10-22：0.3.0 已正式发布
 
-用户新增授权发布 `bzhangui/moonapi@0.3.0`，并更新私有项目申报书；此前“暂不发布”限制仅代表上一轮状态。使用经验证的 2026-10-12 私有 SDK 与用户既有登录目录分离配置，不输出或复制令牌、不升级全局 SDK。0.3.0 发布包含新的 MoonBit 状态/CRUD API；Node HTTP 适配仍需同版本源码/运行包，不将注册表核心误写为四目标网络客户端。
+用户新增授权发布 `bzhangui/moonapi@0.3.0`，并更新私有项目申报书；此前“暂不发布”限制仅代表上一轮状态。使用经验证的 2026-10-12 私有 SDK 与用户既有登录目录分离配置（`MOON_TOOLCHAIN_ROOT` / `MOON_HOME`），不输出或复制令牌、不升级全局 SDK。0.3.0 发布包含新的 MoonBit 状态/CRUD API；Node HTTP 适配仍需同版本源码/运行包，不将注册表核心误写为四目标网络客户端。
 
-发布前重跑完整维护、源码包隐私检查与服务端预检。发布完成后另核验匿名清单、构建、校验和及独立下载消费者；在确认前不以预检响应冒充正式发布，也不覆盖旧版 0.1.1。申报书及原稿备份继续忽略，不进入 Git、源码 ZIP 或运行包。
+发布前重跑完整维护：26 核心 × 四目标、78 Node、全部计算/HTTP 样例通过，核心覆盖率 1178/1390。源码 ZIP 共 89 项，已实际打开核验，无私人申报书、凭据、SDK、数据库、后端二进制、原始报告及路径穿越项，LICENSE/NOTICE 齐全。预检服务端返回明确成功的 202（旧 CLI 对 202 返回非零，作为兼容异常保留）；正式 `moon publish --frozen` 返回 200 OK、退出码 0，不把预检当成发布。
+
+- 版本：`bzhangui/moonapi@0.3.0`，匿名清单 `build_status=success`、`yanked=false`，latest=0.3.0。
+- 发布源码提交：`d8c70cd72a45a818982fc60b5ce1b4984a419efc`。
+- 实际上传 ZIP / 注册表 `metadata.checksum` SHA-256 一致：`997d3dfab3310bd5d9e63a435ce758695ee5db8dcb550cff7c70c814b626e26c`。
+- 匿名清单：[0.3.0 manifest](https://mooncakes.io/api/v0/manifest/bzhangui/moonapi@0.3.0)；安装：`moon add bzhangui/moonapi@0.3.0`。
+- 全新消费者实际下载 0.3.0，不引用仓库核心源码路径。JS/Wasm/Wasm-GC/Native 的 check、release build、三个计算样例、每目标 2 个公开 API 回归均通过（8 次测试执行），包括旧修复与方向 Schema/缺省操作 ID、新状态及 CRUD API。
+- 可重跑 `node scripts/verify-registry.mjs 0.3.0`；脚本默认版本与 package.json 对齐，显式 0.1.1 仍只验证当时已有 API，不混称新能力。
+
+  0.1.1 保留，不覆盖/撤回旧版。私人 `项目申报书.md` 与 AI 复审示例已更新，原稿先保存到忽略的本机备份目录；两份申报书继续忽略，不进入 Git、源码 ZIP 或运行包。发布后的本页等记录只追加 GitHub 证据，不重复覆盖不可变的 0.3.0 ZIP。真实试点、完整 OpenAPI 与 Windows 目录清理边界仍保持原披露。
 
 ## 2026-10-22：0.3.0 源码整改，本轮不发布 Mooncakes
 
