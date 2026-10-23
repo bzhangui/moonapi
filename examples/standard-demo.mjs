@@ -28,7 +28,7 @@ for (const defect of [false, true]) {
         executed: result.executed,
         failures: result.failed,
         expected_outcome_confirmed: true,
-        full_openapi_support: false,
+        full_openapi_support: result.full_openapi_support,
       }),
     );
   } finally {

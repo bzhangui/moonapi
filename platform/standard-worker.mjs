@@ -1,11 +1,41 @@
 // The untrusted standards compiler and regex/random generation live in a
 // disposable, memory/time-bounded worker, never in the HTTP runner event loop.
 import { parentPort } from "node:worker_threads";
+import { createHash, randomUUID } from "node:crypto";
 import SwaggerParser from "@apidevtools/swagger-parser";
 import Enforcer from "openapi-enforcer";
-import AjvDraft4 from "ajv-draft-04";
-import addFormats from "ajv-formats";
-import { parseDocument } from "yaml";
+import { parseDocument, isMap, isSeq, isScalar, isAlias } from "yaml";
+import {
+  parseExact,
+  stringifyExact,
+  cloneExact,
+  numeric,
+  number,
+  decimal,
+  shadow,
+  setOwn,
+} from "./standard-value.mjs";
+import { validSchema, directed, effective } from "./standard-schema.mjs";
+import {
+  encodeRequest,
+  deserializeParameter,
+  serializeParameter,
+} from "./standard-codec.mjs";
+import {
+  decodeMedia,
+  encodeMedia,
+  concreteMedia,
+  castWire,
+} from "./standard-media.mjs";
+import { expression, pointer, runtimeValue } from "./standard-expression.mjs";
+import {
+  auditDocument,
+  structuralShadow,
+  stripRefSiblings,
+  shieldLiterals,
+} from "./standard-document.mjs";
+import { STANDARD_CAPABILITIES } from "./standard-capabilities.mjs";
+import { loadCore } from "./runner.mjs";
 
 const METHODS = [
   "get",
@@ -20,11 +50,16 @@ const METHODS = [
 let api,
   definition,
   operations = new Map();
-let validators = new WeakMap();
+let ROOT_URI = "https://moonapi.invalid/openapi.json";
+let referenceParser;
+let grantedDocuments, externalDocuments, referenceOptions;
+let grantedSources;
+const literalKey = "x-moonapi-literal-" + randomUUID();
+let missingReference = false;
 const fail = (code) => {
   throw Object.assign(new Error(code), { code });
 };
-function parseSource(source) {
+function parseSource(source, asData = false) {
   const parsed = parseDocument(source, {
     version: "1.2",
     schema: "core",
@@ -33,9 +68,44 @@ function parseSource(source) {
   });
   if (parsed.errors.length || parsed.warnings.length)
     fail("STANDARD_DOCUMENT_ENCODING");
-  const value = parsed.toJS({ maxAliasCount: 20 });
+  parsed.toJS({ maxAliasCount: 20 }); // enforce alias expansion budget first
+  let visits = 0;
+  function ast(node, parents = new Set()) {
+    if (++visits > 50000 || parents.size > 64) fail("STANDARD_RESOURCE_BUDGET");
+    if (isAlias(node)) {
+      if (parents.has(node)) fail("STANDARD_DOCUMENT_ENCODING");
+      return ast(node.resolve(parsed), new Set(parents).add(node));
+    }
+    if (isMap(node)) {
+      const out = {};
+      for (const pair of node.items) {
+        if (!isScalar(pair.key) || typeof pair.key.value !== "string")
+          fail("STANDARD_DOCUMENT_ENCODING");
+        setOwn(out, pair.key.value, ast(pair.value, parents));
+      }
+      return out;
+    }
+    if (isSeq(node)) return node.items.map((x) => ast(x, parents));
+    if (isScalar(node) && typeof node.value === "number") {
+      let lexeme = node.source.replace(/^\+/, "");
+      if (/^-?0[xo][0-9a-f]+$/i.test(lexeme)) {
+        const negative = lexeme.startsWith("-");
+        lexeme = String(
+          (negative ? -1n : 1n) * BigInt(negative ? lexeme.slice(1) : lexeme),
+        );
+      }
+      lexeme = lexeme.replace(/^(-?)\./, "$10.").replace(/\.(?=[eE]|$)/, ".0");
+      try {
+        return number(lexeme);
+      } catch {
+        fail("STANDARD_NUMBER");
+      }
+    }
+    return node?.value ?? null;
+  }
+  const value = ast(parsed.contents);
   bounded(value);
-  return value;
+  return asData ? value : shieldLiterals(stripRefSiblings(value), literalKey);
 }
 function bounded(value) {
   const stack = [[value, 0]],
@@ -47,8 +117,6 @@ function bounded(value) {
     if (v && typeof v === "object" && !seen.has(v)) {
       seen.add(v);
       for (const key of Object.keys(v)) {
-        if (["__proto__", "prototype", "constructor"].includes(key))
-          fail("STANDARD_UNSAFE_KEY");
         stack.push([v[key], depth + 1]);
       }
     }
@@ -56,122 +124,24 @@ function bounded(value) {
 }
 function jsonValue(value) {
   if (value === undefined) return undefined;
-  const out = JSON.stringify(value);
+  const out = stringifyExact(value);
   if (Buffer.byteLength(out) > 262144) fail("STANDARD_VALUE_BUDGET");
-  return JSON.parse(out);
-}
-function validator(schema, mode) {
-  let modes = validators.get(schema);
-  if (!modes) {
-    modes = new Map();
-    validators.set(schema, modes);
-  }
-  if (modes.has(mode)) return modes.get(mode);
-  const definitions = {},
-    ids = new WeakMap();
-  const convert = (rule) => {
-    if (ids.has(rule)) return { $ref: "#/definitions/" + ids.get(rule) };
-    const id = "s" + idsCount++;
-    if (idsCount > 4096) fail("STANDARD_SCHEMA_BUDGET");
-    ids.set(rule, id);
-    const out = (definitions[id] = {});
-    for (const key of [
-      "type",
-      "enum",
-      "multipleOf",
-      "maximum",
-      "minimum",
-      "exclusiveMaximum",
-      "exclusiveMinimum",
-      "minLength",
-      "maxLength",
-      "pattern",
-      "minItems",
-      "maxItems",
-      "uniqueItems",
-      "minProperties",
-      "maxProperties",
-      "format",
-    ]) {
-      if (Object.hasOwn(rule, key))
-        out[key] =
-          key === "pattern" && rule[key] instanceof RegExp
-            ? rule[key].source
-            : jsonValue(rule[key]);
-    }
-    if (rule.nullable && typeof out.type === "string")
-      out.type = [out.type, "null"];
-    for (const key of ["allOf", "oneOf", "anyOf"])
-      if (rule[key]) out[key] = rule[key].map(convert);
-    for (const key of ["items", "not"])
-      if (rule[key]) out[key] = convert(rule[key]);
-    if (rule.properties) {
-      out.properties = {};
-      for (const [key, prop] of Object.entries(rule.properties)) {
-        out.properties[key] =
-          (mode === "write" && prop.readOnly) ||
-          (mode === "read" && prop.writeOnly)
-            ? { not: {} }
-            : convert(prop);
-      }
-    }
-    if (rule.required?.length)
-      out.required = rule.required.filter((key) => {
-        const prop = rule.properties?.[key];
-        return (
-          !(mode === "write" && prop?.readOnly) &&
-          !(mode === "read" && prop?.writeOnly)
-        );
-      });
-    if (out.required?.length === 0) delete out.required;
-    if (typeof rule.additionalProperties === "boolean")
-      out.additionalProperties = rule.additionalProperties;
-    else if (rule.additionalProperties)
-      out.additionalProperties = convert(rule.additionalProperties);
-    return { $ref: "#/definitions/" + id };
-  };
-  let idsCount = 0;
-  const root = convert(schema);
-  const ajv = new AjvDraft4({
-    strict: false,
-    validateFormats: true,
-    allErrors: false,
-    logger: false,
-  });
-  addFormats(ajv);
-  ajv.addFormat("int32", {
-    type: "number",
-    validate: (n) => Number.isInteger(n) && n >= -2147483648 && n <= 2147483647,
-  });
-  ajv.addFormat("int64", {
-    type: "number",
-    validate: (n) => Number.isSafeInteger(n),
-  });
-  ajv.addFormat("byte", {
-    type: "string",
-    validate: (s) =>
-      /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
-        s,
-      ),
-  });
-  for (const name of ["binary", "password", "float", "double"])
-    ajv.addFormat(name, true);
-  const fn = ajv.compile({ ...root, definitions });
-  modes.set(mode, fn);
-  return fn;
+  return parseExact(out);
 }
 function validate(schema, value, mode = "write") {
   if (!schema) return true;
-  return validator(schema, mode)(value);
+  return validSchema(schema, value, mode);
 }
-function sample(schema, examples, seed) {
+function sample(schema, examples, seed, mode = "write") {
   if (!schema) return examples[0] ?? "sample";
   for (const candidate of examples) {
     if (candidate !== undefined) {
-      const projected = projectRequest(schema, jsonValue(candidate));
-      if (validate(schema, projected)) return projected;
+      const projected = projectRequest(schema, jsonValue(candidate), 0, mode);
+      if (validate(schema, projected, mode)) return projected;
     }
   }
+  const generated = directed(schema, seed, 0, new Set(), mode);
+  if (generated !== undefined) return generated;
   let state = seed + 1;
   const random = Math.random;
   Math.random = () => {
@@ -183,9 +153,7 @@ function sample(schema, examples, seed) {
     // Enforcer is only a candidate generator. Its known composite/AND
     // limitations must not reject an otherwise legal OpenAPI document or
     // decide contract validity. Independent raw-schema validation is mandatory.
-    const [generator, generationError] = Enforcer.v3_0.Schema(
-      structuredClone(schema),
-    );
+    const [generator, generationError] = Enforcer.v3_0.Schema(shadow(schema));
     for (let i = 0; !generationError && i < 24; i++) {
       const [value, error] = generator.random(undefined, {
         maxDepth: 8,
@@ -198,22 +166,27 @@ function sample(schema, examples, seed) {
       if (!error) {
         // Serialization also projects direction-only properties.
         const [serialized, serialError] = generator.serialize(value, {
-          readWriteMode: "write",
+          readWriteMode: mode,
         });
         if (!serialError) {
-          const projected = projectRequest(schema, jsonValue(serialized));
-          if (validate(schema, projected)) return projected;
+          const projected = projectRequest(
+            schema,
+            jsonValue(serialized),
+            0,
+            mode,
+          );
+          if (validate(schema, projected, mode)) return projected;
         }
       }
     }
     for (const candidate of candidates)
-      if (validate(schema, candidate)) return candidate;
+      if (validate(schema, candidate, mode)) return candidate;
   } finally {
     Math.random = random;
   }
   fail("STANDARD_GENERATION_UNSAT_OR_BUDGET");
 }
-function projectRequest(schema, value, depth = 0) {
+function projectRequest(schema, value, depth = 0, mode = "write") {
   if (!schema || depth > 16 || value === null || typeof value !== "object")
     return value;
   for (const rule of [
@@ -221,20 +194,26 @@ function projectRequest(schema, value, depth = 0) {
     ...(schema.oneOf ?? []),
     ...(schema.anyOf ?? []),
   ])
-    value = projectRequest(rule, value, depth + 1);
+    value = projectRequest(rule, value, depth + 1, mode);
   if (Array.isArray(value))
-    return value.map((v) => projectRequest(schema.items, v, depth + 1));
+    return value.map((v) => projectRequest(schema.items, v, depth + 1, mode));
   for (const [key, prop] of Object.entries(schema.properties ?? {})) {
-    if (prop.readOnly) delete value[key];
+    if (mode === "write" ? prop.readOnly : prop.writeOnly) delete value[key];
     else if (Object.hasOwn(value, key))
-      value[key] = projectRequest(prop, value[key], depth + 1);
+      setOwn(value, key, projectRequest(prop, value[key], depth + 1, mode));
   }
   return value;
 }
 function exampleValues(node) {
   return [
     node?.example,
-    ...Object.values(node?.examples ?? {}).map((e) => e?.value),
+    ...Object.values(node?.examples ?? {}).map((e) => {
+      if (e && Object.hasOwn(e, "value")) return e.value;
+      const raw = e?.externalValue
+        ? grantedSources?.get(new URL(e.externalValue, ROOT_URI).href)
+        : undefined;
+      return raw === undefined ? undefined : parseSource(raw, true);
+    }),
     node?.schema?.example,
     node?.schema?.default,
   ];
@@ -244,13 +223,31 @@ function exampleValues(node) {
 function boundaryValues(schema, value, depth = 0) {
   if (!schema || depth > 3) return [];
   const out = [...(schema.enum ?? [])];
-  if (typeof value === "number") {
+  if (numeric(value)) {
     const step = schema.multipleOf ?? (schema.type === "integer" ? 1 : 0.5);
-    out.push(0, value - step, value + step);
+    const add = (a, b, sign = 1n) => {
+      const [x, e] = decimal(a),
+        [y, f] = decimal(b),
+        z = Math.min(e, f);
+      return number(
+        String(x * 10n ** BigInt(e - z) + sign * y * 10n ** BigInt(f - z)) +
+          "e" +
+          z,
+      );
+    };
+    out.push(0, add(value, step, -1n), add(value, step));
     if (schema.minimum !== undefined)
-      out.push(schema.minimum, schema.minimum - step, schema.minimum + step);
+      out.push(
+        schema.minimum,
+        add(schema.minimum, step, -1n),
+        add(schema.minimum, step),
+      );
     if (schema.maximum !== undefined)
-      out.push(schema.maximum, schema.maximum - step, schema.maximum + step);
+      out.push(
+        schema.maximum,
+        add(schema.maximum, step, -1n),
+        add(schema.maximum, step),
+      );
   } else if (typeof value === "string") {
     for (const n of [schema.minLength, schema.maxLength])
       if (Number.isInteger(n) && n <= 4096) {
@@ -274,7 +271,8 @@ function boundaryValues(schema, value, depth = 0) {
   } else if (value && typeof value === "object") {
     const properties = { ...schema.properties };
     for (const branch of schema.allOf ?? [])
-      Object.assign(properties, branch.properties);
+      for (const [k, v] of Object.entries(branch.properties || {}))
+        setOwn(properties, k, v);
     for (const key of Object.keys(value).slice(0, 8)) {
       const without = { ...value };
       delete without[key];
@@ -291,60 +289,12 @@ function boundaryValues(schema, value, depth = 0) {
   }
   return out;
 }
-function metadata(id, op, item) {
+function metadata(id, op, item, context = definition) {
   const body = op.requestBody;
-  const security = op.security ?? definition.security ?? [];
+  const security = op.security ?? context.security ?? [];
   const blockers = [];
-  if (op.__moonapi_method === "trace") blockers.push("trace_transport_pending");
-  const definitions = [
-    body,
-    ...op.allParameters,
-    ...Object.values(op.responses),
-    ...Object.values(op.responses).flatMap((r) =>
-      Object.values(r.headers ?? {}),
-    ),
-  ];
-  const scanned = new Set(),
-    stack = definitions.flatMap((v) => [
-      v?.schema,
-      ...Object.values(v?.content ?? {}).map((m) => m.schema),
-    ]);
-  while (stack.length) {
-    const value = stack.pop();
-    if (!value || typeof value !== "object" || scanned.has(value)) continue;
-    scanned.add(value);
-    if (value.discriminator)
-      blockers.push("discriminator_interactions_pending");
-    // Walk Schema Objects only. A business property/header/example named
-    // "discriminator" is not an active OAS Discriminator Object.
-    stack.push(
-      value.items,
-      value.not,
-      value.additionalProperties,
-      ...Object.values(value.properties ?? {}),
-      ...(value.allOf ?? []),
-      ...(value.anyOf ?? []),
-      ...(value.oneOf ?? []),
-    );
-  }
-  if (Object.keys(op.callbacks ?? {}).length)
-    blockers.push("callbacks_execution_pending");
-  for (const response of Object.values(op.responses)) {
-    if (Object.keys(response.links ?? {}).length)
-      blockers.push("links_execution_pending");
-    if (Object.keys(response.content ?? {}).some((m) => /xml/i.test(m)))
-      blockers.push("xml_contract_pending");
-  }
+  // Capability is tested independently of a particular run's permissions.
   const media = Object.keys(body?.content ?? {});
-  if (media.some((m) => /xml/i.test(m))) blockers.push("xml_encoding_pending");
-  if (media.some((m) => m.includes("*")))
-    blockers.push("request_media_selection_pending");
-  if (
-    Object.values(body?.content ?? {}).some(
-      (m) => Object.keys(m.encoding ?? {}).length,
-    )
-  )
-    blockers.push("custom_encoding_pending");
   return {
     id,
     method: "", // overwritten by compiler
@@ -367,14 +317,24 @@ function metadata(id, op, item) {
       ]),
     ),
     servers: jsonValue(
-      op.servers ?? item.servers ?? definition.servers ?? [{ url: "/" }],
+      op.servers ?? item.servers ?? context.servers ?? [{ url: "/" }],
     ),
     security: jsonValue(security),
-    security_schemes: jsonValue(definition.components?.securitySchemes ?? {}),
+    security_schemes: jsonValue(context.components?.securitySchemes ?? {}),
     blockers: [...new Set(blockers)],
+    callbacks: Object.keys(op.callbacks ?? {}),
   };
 }
-async function compile({ source, documents = {} }) {
+async function compile({
+  source,
+  documents = {},
+  documentURI = "https://moonapi.invalid/openapi.json",
+}) {
+  await loadCore();
+  const root = new URL(documentURI);
+  if (root.hash || root.username || root.password)
+    fail("STANDARD_DOCUMENT_URI");
+  ROOT_URI = root.href;
   const doc = parseSource(source);
   bounded(doc);
   if (!/^3\.0\.\d+$/.test(doc.openapi ?? ""))
@@ -382,19 +342,15 @@ async function compile({ source, documents = {} }) {
   if (Object.keys(documents).length > 16) fail("STANDARD_REFERENCE_BUDGET");
   let bytes = Buffer.byteLength(source);
   const refs = new Map();
+  grantedSources = new Map();
   for (const [uri, content] of Object.entries(documents)) {
     const u = new URL(uri);
-    if (
-      !["https:", "http:"].includes(u.protocol) ||
-      u.username ||
-      u.password ||
-      u.hash
-    )
-      fail("STANDARD_REFERENCE_URI");
+    if (u.username || u.password || u.hash) fail("STANDARD_REFERENCE_URI");
     bytes += Buffer.byteLength(content);
     if (bytes > 4194304) fail("STANDARD_REFERENCE_BUDGET");
     const parsed = parseSource(content);
     refs.set(u.href, parsed);
+    grantedSources.set(u.href, content);
   }
   // No ambient file/network access. External refs require exact document grants.
   const parser = new SwaggerParser();
@@ -407,28 +363,59 @@ async function compile({ source, documents = {} }) {
       read: (file) => {
         const url = new URL(file.url);
         url.hash = "";
-        if (!refs.has(url.href)) fail("STANDARD_REFERENCE_NOT_GRANTED");
-        return JSON.stringify(refs.get(url.href));
+        if (!refs.has(url.href)) {
+          missingReference = true;
+          fail("STANDARD_REFERENCE_NOT_GRANTED");
+        }
+        return stringifyExact(refs.get(url.href));
       },
     },
   };
-  const bundle = await parser.bundle(
-    "https://moonapi.invalid/openapi.json",
-    doc,
-    { resolve: resolver },
-  );
-  api = await SwaggerParser.validate(bundle, {
+  const bundle = await parser.bundle(ROOT_URI, doc, {
+    resolve: resolver,
+    parse: {
+      exact: {
+        order: 1,
+        canParse: () => true,
+        parse: (file) => parseSource(String(file.data)),
+      },
+      json: false,
+      yaml: false,
+    },
+  });
+  referenceParser = parser;
+  grantedDocuments = refs;
+  externalDocuments = new Map();
+  referenceOptions = {
+    resolve: resolver,
+    parse: {
+      exact: {
+        order: 1,
+        canParse: () => true,
+        parse: (file) => parseSource(String(file.data)),
+      },
+      json: false,
+      yaml: false,
+    },
+  };
+  await SwaggerParser.validate(structuralShadow(bundle), {
     resolve: { external: false, file: false, http: false },
   });
-  validators = new WeakMap();
+  api = await SwaggerParser.dereference(bundle, {
+    resolve: { external: false, file: false, http: false },
+  });
+  shieldLiterals(api, literalKey, true);
+  auditDocument(api);
   definition = api;
   operations = new Map();
   const summaries = [];
   for (const route of Object.keys(api.paths).sort()) {
+    if (!route.startsWith("/")) continue;
     const item = api.paths[route];
     for (const method of METHODS) {
       const op = item[method];
       if (!op) continue;
+      if (["get", "head", "trace"].includes(method)) delete op.requestBody;
       op.__moonapi_method = method;
       const merged = new Map();
       for (const list of [item.parameters ?? [], op.parameters ?? []]) {
@@ -489,7 +476,7 @@ async function compile({ source, documents = {} }) {
   return {
     operations: summaries,
     document_valid: true,
-    full_openapi_support: false,
+    ...STANDARD_CAPABILITIES,
   };
 }
 function variants({ id, seed }) {
@@ -568,6 +555,39 @@ function variants({ id, seed }) {
         reason: "missing_parameter",
       });
     }
+    for (const p of op.allParameters) {
+      const original = parameters.find(
+        (x) => x.in === p.in && x.name === p.name,
+      );
+      for (const candidate of boundaryValues(p.schema, original.value).slice(
+        0,
+        16,
+      )) {
+        out.push({
+          ...positive,
+          parameters: parameters.map((x) =>
+            x === original ? { ...x, value: candidate } : x,
+          ),
+          negative: !validate(p.schema, candidate),
+          reason: "parameter_boundary",
+        });
+      }
+      if (!p.required)
+        out.push({
+          ...positive,
+          parameters: parameters.filter((x) => x !== original),
+          reason: "optional_parameter_omitted",
+        });
+    }
+    for (const branch of content?.schema?.oneOf ||
+      content?.schema?.anyOf ||
+      []) {
+      try {
+        const v = sample(branch, [branch.example, branch.default], seed);
+        if (validate(content.schema, v))
+          out.push({ ...positive, body: v, reason: "composition_branch" });
+      } catch {}
+    }
     if (media && op.requestBody.required) {
       const missing = { ...positive, negative: true, reason: "missing_body" };
       delete missing.body;
@@ -585,7 +605,7 @@ function variants({ id, seed }) {
   const seen = new Set(),
     unique = [];
   for (const c of out) {
-    const key = JSON.stringify({
+    const key = stringifyExact({
       parameters: c.parameters,
       media: c.media,
       body: c.body,
@@ -613,20 +633,28 @@ function headerValue(schema, value, explode) {
         const i = token.indexOf("=");
         if (i < 0) fail("STANDARD_HEADER_VALUE");
         const key = token.slice(0, i).trim();
-        out[key] = headerValue(
-          schema.properties?.[key] ?? schema.additionalProperties,
-          token.slice(i + 1).trim(),
-          false,
+        setOwn(
+          out,
+          key,
+          headerValue(
+            schema.properties?.[key] ?? schema.additionalProperties,
+            token.slice(i + 1).trim(),
+            false,
+          ),
         );
       }
     } else {
       if (tokens.length % 2) fail("STANDARD_HEADER_VALUE");
       for (let i = 0; i < tokens.length; i += 2) {
         const key = tokens[i].trim();
-        out[key] = headerValue(
-          schema.properties?.[key] ?? schema.additionalProperties,
-          tokens[i + 1].trim(),
-          false,
+        setOwn(
+          out,
+          key,
+          headerValue(
+            schema.properties?.[key] ?? schema.additionalProperties,
+            tokens[i + 1].trim(),
+            false,
+          ),
         );
       }
     }
@@ -636,7 +664,7 @@ function headerValue(schema, value, explode) {
     ["integer", "number"].includes(schema.type) &&
     /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(value)
   )
-    return Number(value);
+    return number(value);
   if (schema.type === "boolean" && ["true", "false"].includes(value))
     return value === "true";
   return value;
@@ -672,8 +700,8 @@ function responseContract({ id, status, headers, body, empty = false }) {
       try {
         const media = Object.keys(header.content ?? {})[0];
         const rule = header.schema ?? header.content?.[media]?.schema;
-        const decoded = media?.includes("json")
-          ? JSON.parse(value)
+        const decoded = media
+          ? decodeMedia(media, Buffer.from(value), header.content[media])
           : headerValue(rule, value, header.explode);
         if (!validate(rule, decoded, "read"))
           return { valid: false, code: "response_header_schema" };
@@ -699,7 +727,453 @@ function responseContract({ id, status, headers, body, empty = false }) {
   const valid = validate(content[key].schema, body, "read");
   return { valid, code: valid ? "" : "response_schema" };
 }
-parentPort.on("message", async ({ id, action, args }) => {
+function wireRequest({ id, test }) {
+  const record = operations.get(id);
+  if (!record) fail("STANDARD_UNKNOWN_OPERATION");
+  const operation = {
+    ...metadata(
+      id,
+      record.op,
+      record.item || {},
+      record.definition || definition,
+    ),
+    path: record.route,
+    body_content: record.op.requestBody?.content,
+  };
+  operation.parameters = operation.parameters.map((p) => ({
+    ...p,
+    schema: record.op.allParameters.find(
+      (x) => x.in === p.in && x.name === p.name,
+    )?.schema,
+  }));
+  for (const c of Object.values(operation.body_content || {}))
+    for (const e of Object.values(c.encoding || {}))
+      for (const [name, h] of Object.entries(e.headers || {})) {
+        if (name.toLowerCase() === "content-type") continue;
+        const mt = Object.keys(h.content || {})[0],
+          rule = h.schema || h.content?.[mt]?.schema;
+        const value = sample(rule, exampleValues(h), 42, "write");
+        h.example = value;
+        h.__wireValue = serializeParameter(
+          { ...h, name, in: "header", schema: rule, content: mt },
+          value,
+        )[1];
+      }
+  const result = encodeRequest(operation, test);
+  return { ...result, body: result.body?.toString("base64") };
+}
+function wireRequestContract({ id, route, headers, raw, decodedBody }) {
+  const record = operations.get(id);
+  if (!record) fail("STANDARD_UNKNOWN_OPERATION");
+  const url = new URL(route, "http://127.0.0.1"),
+    names = [];
+  const pattern = record.route
+    .split(/(\{[^{}]+\})/)
+    .map((v) => {
+      if (v.startsWith("{")) {
+        names.push(v.slice(1, -1));
+        return "([^/]+)";
+      }
+      return v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    })
+    .join("");
+  const match = new RegExp("^" + pattern + "$").exec(url.pathname),
+    path = {};
+  if (!match) return { valid: false };
+  names.forEach((n, i) => setOwn(path, n, match[i + 1]));
+  const test = { operation_id: id, parameters: [] };
+  for (const p of record.op.allParameters) {
+    let value;
+    try {
+      value = deserializeParameter(
+        { ...p, content: Object.keys(p.content || {})[0] },
+        { path, query: url.search, headers },
+      );
+    } catch {
+      return { valid: false };
+    }
+    if (value !== undefined)
+      test.parameters.push({ in: p.in, name: p.name, value });
+  }
+  if (raw !== undefined && record.op.requestBody) {
+    const media = (headers["content-type"] || "")
+        .split(";")[0]
+        .trim()
+        .toLowerCase(),
+      content = record.op.requestBody.content;
+    const key =
+      Object.keys(content).find((k) => k.toLowerCase() === media) ||
+      Object.keys(content).find(
+        (k) => k.toLowerCase() === media.split("/")[0] + "/*",
+      ) ||
+      (content["*/*"] ? "*/*" : undefined);
+    if (!key) return { valid: false };
+    try {
+      test.media = key;
+      test.body =
+        decodedBody !== undefined
+          ? decodedBody
+          : decodeMedia(
+              headers["content-type"],
+              Buffer.from(raw, "base64"),
+              content[key],
+            );
+    } catch {
+      return { valid: false };
+    }
+  }
+  return requestContract({ id, test });
+}
+function wireResponse({ id, status, headers, raw }) {
+  const { op } = operations.get(id) ?? {};
+  if (!op) fail("STANDARD_UNKNOWN_OPERATION");
+  const response =
+    op.responses[status] ??
+    op.responses[String(status)[0] + "XX"] ??
+    op.responses.default;
+  const media = (headers["content-type"] || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  const key =
+    Object.keys(response?.content || {}).find((k) => k === media) ||
+    Object.keys(response?.content || {}).find(
+      (k) => k === media.split("/")[0] + "/*",
+    ) ||
+    (response?.content?.["*/*"] ? "*/*" : undefined);
+  let body = "",
+    contract;
+  const bytes = Buffer.from(raw, "base64");
+  try {
+    if (key && bytes.length)
+      body = decodeMedia(headers["content-type"], bytes, response.content[key]);
+    else if (
+      key &&
+      /json/.test(media) &&
+      operations.get(id).method !== "head" &&
+      ![204, 304].includes(status)
+    )
+      throw new Error();
+  } catch {
+    return {
+      body: null,
+      contract: {
+        valid: false,
+        code: /json/.test(media)
+          ? "invalid_json_or_precision"
+          : "invalid_media",
+      },
+    };
+  }
+  contract = responseContract({
+    id,
+    status,
+    headers,
+    body,
+    empty: bytes.length === 0,
+  });
+  return { body, contract };
+}
+function responseFor(op, status) {
+  return (
+    op.responses[status] ??
+    op.responses[String(status)[0] + "XX"] ??
+    op.responses.default
+  );
+}
+async function targetOperation(link, base = ROOT_URI) {
+  if (link.operationId)
+    return operations.has(link.operationId) ? link.operationId : undefined;
+  const url = new URL(link.operationRef, base);
+  let operation;
+  try {
+    operation = referenceParser.$refs.get(url.href);
+  } catch {
+    if (url.href.split("#")[0] === ROOT_URI)
+      operation = pointer(api, decodeURIComponent(url.hash.slice(1)));
+  }
+  for (const [id, r] of operations)
+    if (
+      r.op === operation ||
+      (operation?.operationId === r.op.operationId && operation.operationId)
+    )
+      return id;
+  const uri = url.href.split("#")[0];
+  if (uri !== ROOT_URI && grantedDocuments.has(uri)) {
+    let ext = externalDocuments.get(uri);
+    if (!ext) {
+      const p = new SwaggerParser(),
+        input = cloneExact(grantedDocuments.get(uri));
+      const b = await p.bundle(uri, input, referenceOptions);
+      await SwaggerParser.validate(structuralShadow(b), {
+        resolve: { external: false, file: false, http: false },
+      });
+      ext = await SwaggerParser.dereference(b, {
+        resolve: { external: false, file: false, http: false },
+      });
+      shieldLiterals(ext, literalKey, true);
+      auditDocument(ext);
+      externalDocuments.set(uri, ext);
+    }
+    const target = pointer(ext, decodeURIComponent(url.hash.slice(1)));
+    for (const [route, item] of Object.entries(ext.paths))
+      if (route.startsWith("/"))
+        for (const method of METHODS)
+          if (item[method] === target) {
+            const id =
+              "external-" +
+              createHash("sha256").update(url.href).digest("hex").slice(0, 24);
+            const op = target,
+              merged = new Map();
+            for (const param of [
+              ...(item.parameters || []),
+              ...(op.parameters || []),
+            ]) {
+              if (!param.schema && param.content)
+                param.schema =
+                  param.content[Object.keys(param.content)[0]]?.schema;
+              merged.set(
+                param.in +
+                  ":" +
+                  (param.in === "header"
+                    ? param.name.toLowerCase()
+                    : param.name),
+                param,
+              );
+            }
+            op.allParameters = [...merged.values()].filter(
+              (p) =>
+                !(
+                  p.in === "header" &&
+                  ["accept", "content-type", "authorization"].includes(
+                    p.name.toLowerCase(),
+                  )
+                ),
+            );
+            operations.set(id, {
+              op,
+              route,
+              method,
+              item,
+              definition: ext,
+              sourceURI: uri,
+            });
+            return id;
+          }
+  }
+  return undefined;
+}
+async function linked({ id, context, seed }) {
+  const record = operations.get(id);
+  if (!record) fail("STANDARD_UNKNOWN_OPERATION");
+  const out = [];
+  for (const [name, link] of Object.entries(
+    responseFor(record.op, context.status)?.links || {},
+  )) {
+    const target = await targetOperation(link, record.sourceURI || ROOT_URI);
+    if (!target) {
+      out.push({ name, code: "link_target_not_in_document" });
+      continue;
+    }
+    const r = operations.get(target),
+      test = variants({ id: target, seed }).find((t) => !t.negative);
+    if (!test) {
+      out.push({ name, code: "link_no_candidate" });
+      continue;
+    }
+    for (const [key, expr] of Object.entries(link.parameters || {})) {
+      const p =
+        r.op.allParameters.find((p) => key === p.in + "." + p.name) ||
+        r.op.allParameters.find((p) => key === p.name);
+      if (!p) fail("STANDARD_LINK_PARAMETER");
+      const value = runtimeValue(expr, context),
+        index = test.parameters.findIndex(
+          (x) => x.in === p.in && x.name === p.name,
+        );
+      if (index >= 0) test.parameters.splice(index, 1);
+      if (value !== undefined)
+        test.parameters.push({ in: p.in, name: p.name, value });
+    }
+    if (Object.hasOwn(link, "requestBody")) {
+      const v = runtimeValue(link.requestBody, context);
+      if (v === undefined) delete test.body;
+      else test.body = v;
+    }
+    out.push({
+      name,
+      test,
+      operation: {
+        ...metadata(target, r.op, r.item || {}, r.definition || definition),
+        method: r.method.toUpperCase(),
+        path: r.route,
+      },
+      server: link.server,
+      valid: requestContract({ id: target, test }).valid,
+    });
+  }
+  return out;
+}
+function callbacks({ id }) {
+  const { op } = operations.get(id) ?? {};
+  if (!op) fail("STANDARD_UNKNOWN_OPERATION");
+  const out = [];
+  for (const [name, callback] of Object.entries(op.callbacks || {}))
+    for (const [expr, item] of Object.entries(callback))
+      if (!expr.startsWith("x-"))
+        out.push({
+          name,
+          expression: expr,
+          methods: METHODS.filter((m) => item[m]).map((m) => m.toUpperCase()),
+        });
+  return out;
+}
+function callbackContract({
+  id,
+  name,
+  expression: expr,
+  incoming,
+  seed,
+  credentials = {},
+}) {
+  const { op } = operations.get(id) ?? {},
+    item = op?.callbacks?.[name]?.[expr],
+    operation = item?.[incoming.method.toLowerCase()];
+  if (!operation) return { valid: false, code: "callback_method", status: 405 };
+  const headers = Object.fromEntries(
+      Object.entries(incoming.headers).map(([k, v]) => [
+        k.toLowerCase(),
+        String(v),
+      ]),
+    ),
+    url = new URL(incoming.url, "http://127.0.0.1");
+  const security = operation.security ?? definition.security ?? [];
+  if (
+    security.length &&
+    !security.some((r) =>
+      Object.entries(r).every(([name, scopes]) => {
+        const s = definition.components?.securitySchemes?.[name],
+          c = Object.hasOwn(credentials, name) ? credentials[name] : undefined;
+        if (!s || !c || !scopes.every((x) => c.scopes?.includes(x)))
+          return false;
+        if (s.type === "apiKey") {
+          const value =
+            s.in === "query"
+              ? url.searchParams.get(s.name)
+              : s.in === "header"
+                ? headers[s.name.toLowerCase()]
+                : headers.cookie
+                    ?.split(/;\s*/)
+                    .find((x) => x.startsWith(encodeURIComponent(s.name) + "="))
+                    ?.slice(encodeURIComponent(s.name).length + 1);
+          return (
+            value === c.value ||
+            (s.in === "cookie" && value === encodeURIComponent(c.value))
+          );
+        }
+        const expected =
+          s.type === "http" && s.scheme.toLowerCase() === "basic"
+            ? "Basic " +
+              Buffer.from(c.username + ":" + c.password).toString("base64")
+            : (s.type === "http" && s.scheme.toLowerCase() !== "bearer"
+                ? s.scheme
+                : "Bearer") +
+              " " +
+              c.value;
+        return headers.authorization === expected;
+      }),
+    )
+  )
+    return { valid: false, status: 401, code: "callback_authentication" };
+  const params = new Map();
+  for (const p of [...(item.parameters || []), ...(operation.parameters || [])])
+    params.set(p.in + ":" + p.name, p);
+  for (const p of params.values()) {
+    const mt = Object.keys(p.content || {})[0],
+      rule = p.schema || p.content?.[mt]?.schema;
+    let v;
+    try {
+      v = deserializeParameter(
+        { ...p, schema: rule, content: mt },
+        { query: url.search, headers, path: incoming.path || {} },
+      );
+    } catch {
+      return { valid: false, code: "callback_parameter", status: 400 };
+    }
+    if (v === undefined) {
+      if (p.required)
+        return { valid: false, code: "callback_parameter", status: 400 };
+      continue;
+    }
+    if (!validate(rule, v))
+      return { valid: false, code: "callback_parameter", status: 400 };
+  }
+  const bytes = Buffer.from(incoming.raw, "base64"),
+    mt = (headers["content-type"] || "").split(";")[0],
+    body = operation.requestBody,
+    hasBody = bytes.length > 0 || Object.hasOwn(headers, "content-type");
+  if (body?.required && !hasBody)
+    return { valid: false, code: "callback_body_required", status: 400 };
+  if (hasBody && body) {
+    const key =
+      Object.keys(body.content).find((k) => k === mt) ||
+      Object.keys(body.content).find((k) => k === mt.split("/")[0] + "/*") ||
+      (body.content["*/*"] ? "*/*" : undefined);
+    if (!key) return { valid: false, code: "callback_media", status: 400 };
+    try {
+      const value = decodeMedia(
+        headers["content-type"],
+        bytes,
+        body.content[key],
+      );
+      if (!validate(body.content[key].schema, value))
+        return { valid: false, code: "callback_body_schema", status: 400 };
+    } catch {
+      return { valid: false, code: "callback_body_encoding", status: 400 };
+    }
+  }
+  const key =
+      Object.keys(operation.responses).find((k) => /^2\d\d$/.test(k)) ||
+      (operation.responses["2XX"] ? "2XX" : undefined) ||
+      Object.keys(operation.responses).find((k) => /^[1-5]\d\d$/.test(k)) ||
+      "default",
+    response = operation.responses[key];
+  if (!response) fail("STANDARD_CALLBACK_RESPONSE");
+  const status =
+      key === "default"
+        ? 200
+        : key.endsWith("XX")
+          ? Number(key[0]) * 100
+          : Number(key),
+    outHeaders = {};
+  let encoded;
+  for (const [k, h] of Object.entries(response.headers || {}))
+    if (k.toLowerCase() !== "content-type") {
+      const mt = Object.keys(h.content || {})[0],
+        rule = h.schema || h.content?.[mt]?.schema,
+        value = sample(rule, exampleValues(h), seed, "read");
+      outHeaders[k] = serializeParameter(
+        { ...h, name: k, in: "header", schema: rule, content: mt },
+        value,
+      )[1];
+    }
+  const media = Object.keys(response.content || {})[0];
+  if (media && ![204, 304].includes(status) && incoming.method !== "HEAD") {
+    const c = response.content[media],
+      v = sample(c.schema, exampleValues(c), seed, "read");
+    if (!validate(c.schema, v, "read"))
+      fail("STANDARD_CALLBACK_RESPONSE_GENERATION");
+    encoded = encodeMedia(media, v, c);
+    outHeaders["content-type"] = encoded.contentType;
+  }
+  return {
+    valid: true,
+    status,
+    headers: outHeaders,
+    body: encoded?.body.toString("base64"),
+  };
+}
+parentPort.on("message", async (message) => {
+  const { id, action, args } = parseExact(message);
   try {
     const value =
       action === "compile"
@@ -710,17 +1184,33 @@ parentPort.on("message", async ({ id, action, args }) => {
             ? requestContract(args)
             : action === "response"
               ? responseContract(args)
-              : fail("STANDARD_UNKNOWN_ACTION");
-    parentPort.postMessage({ id, ok: true, value });
+              : action === "encode"
+                ? wireRequest(args)
+                : action === "decode"
+                  ? wireResponse(args)
+                  : action === "links"
+                    ? await linked(args)
+                    : action === "callbacks"
+                      ? callbacks(args)
+                      : action === "callback"
+                        ? callbackContract(args)
+                        : action === "wire-request"
+                          ? wireRequestContract(args)
+                          : fail("STANDARD_UNKNOWN_ACTION");
+    parentPort.postMessage(stringifyExact({ id, ok: true, value }));
   } catch (error) {
     // Library exceptions can contain document fragments, filesystem paths,
     // examples, or credentials. Never propagate their messages/stacks.
-    parentPort.postMessage({
-      id,
-      ok: false,
-      code: /^STANDARD_[A-Z_]+$/.test(error.code ?? "")
-        ? error.code
-        : "STANDARD_VALIDATION_ERROR",
-    });
+    parentPort.postMessage(
+      stringifyExact({
+        id,
+        ok: false,
+        code: missingReference
+          ? "STANDARD_REFERENCE_NOT_GRANTED"
+          : /^STANDARD_[A-Z_]+$/.test(error.code ?? error.message ?? "")
+            ? (error.code ?? error.message)
+            : "STANDARD_VALIDATION_ERROR",
+      }),
+    );
   }
 });

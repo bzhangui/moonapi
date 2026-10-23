@@ -1,6 +1,6 @@
 {
   "name": "moonapi-tool",
-  "version": "0.4.0-rc.1",
+  "version": "0.4.0-rc.2",
   "private": true,
   "type": "module",
   "engines": {
@@ -12,9 +12,12 @@
     "validate": "node scripts/validate.mjs",
     "demo": "node examples/demo.mjs",
     "demo:behavior": "node examples/behavior-demo.mjs",
-    "demo:standard": "node examples/standard-demo.mjs"
+    "demo:standard": "node examples/standard-demo.mjs",
+    "demo:advanced": "node examples/standard-advanced-demo.mjs"
   },
   "dependencies": {
+    "lossless-json": "4.3.3",
+    "saxes": "6.0.0",
     "@apidevtools/swagger-parser": "13.1.0",
     "ajv-draft-04": "1.0.0",
     "ajv-formats": "3.0.1",

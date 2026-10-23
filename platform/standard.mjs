@@ -1,6 +1,20 @@
 import { Worker } from "node:worker_threads";
 import { Engine, loadCore, VERSION } from "./runner.mjs";
 import { encodeRequest, resolveServer } from "./standard-codec.mjs";
+import {
+  parseExact,
+  stringifyExact,
+  cloneExact,
+  setOwn,
+} from "./standard-value.mjs";
+import { standardHTTP } from "./standard-http.mjs";
+import { callbackReceiver } from "./standard-callback.mjs";
+import {
+  bindExpression,
+  requestContext,
+  expression,
+} from "./standard-expression.mjs";
+import { STANDARD_CAPABILITIES } from "./standard-capabilities.mjs";
 
 function policy(action, args) {
   const result = JSON.parse(
@@ -28,7 +42,8 @@ class StandardWorker {
         },
       },
     );
-    this.#worker.on("message", (result) => {
+    this.#worker.on("message", (message) => {
+      const result = parseExact(message);
       const pending = this.#pending.get(result.id);
       if (!pending) return;
       this.#pending.delete(result.id);
@@ -43,7 +58,7 @@ class StandardWorker {
     if (this.#closed)
       return Promise.reject(new Error("STANDARD_WORKER_CLOSED"));
     try {
-      if (Buffer.byteLength(JSON.stringify(args)) > 4194304) throw new Error();
+      if (Buffer.byteLength(stringifyExact(args)) > 4194304) throw new Error();
     } catch {
       return Promise.reject(new Error("STANDARD_COMMAND_BUDGET"));
     }
@@ -54,7 +69,7 @@ class StandardWorker {
       }, this.timeout);
       this.#pending.set(id, { resolve, reject, timer });
       try {
-        this.#worker.postMessage({ id, action, args });
+        this.#worker.postMessage(stringifyExact({ id, action, args }));
       } catch {
         this.#pending.delete(id);
         clearTimeout(timer);
@@ -82,8 +97,9 @@ export class StandardEngine {
   #description;
   #closed = false;
   #httpAbort;
+  #codecs;
   get description() {
-    return structuredClone(this.#description);
+    return cloneExact(this.#description);
   }
   static async open(source, options = {}) {
     const allowed = [
@@ -96,6 +112,12 @@ export class StandardEngine {
       "compilerTimeout",
       "documents",
       "credentials",
+      "followLinks",
+      "allowCallbacks",
+      "callbackTimeout",
+      "linkDepth",
+      "codecs",
+      "documentURI",
     ];
     if (
       !options ||
@@ -114,6 +136,10 @@ export class StandardEngine {
       timeout: 2000,
       totalTimeout: 60000,
       compilerTimeout: 10000,
+      followLinks: false,
+      allowCallbacks: false,
+      callbackTimeout: 1000,
+      linkDepth: 4,
       ...options,
     };
     for (const [key, min, max] of [
@@ -122,6 +148,8 @@ export class StandardEngine {
       ["timeout", 10, 30000],
       ["totalTimeout", 100, 600000],
       ["compilerTimeout", 100, 30000],
+      ["callbackTimeout", 10, 30000],
+      ["linkDepth", 1, 16],
     ])
       if (
         !Number.isInteger(settings[key]) ||
@@ -129,18 +157,43 @@ export class StandardEngine {
         settings[key] > max
       )
         throw new Error("STANDARD_OPTIONS");
-    for (const key of ["allowWrite", "allowRemote"])
+    for (const key of [
+      "allowWrite",
+      "allowRemote",
+      "followLinks",
+      "allowCallbacks",
+    ])
       if (typeof settings[key] !== "boolean")
         throw new Error("STANDARD_OPTIONS");
     await loadCore();
     const engine = new StandardEngine();
-    engine.options = Object.freeze({
-      seed: settings.seed,
-      limit: settings.limit,
-      allowWrite: settings.allowWrite,
-      allowRemote: settings.allowRemote,
-      timeout: settings.timeout,
-      totalTimeout: settings.totalTimeout,
+    engine.#codecs = new Map();
+    for (const [media, codec] of Object.entries(settings.codecs || {})) {
+      if (
+        !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(media) ||
+        typeof codec?.encode !== "function" ||
+        typeof codec?.decode !== "function"
+      )
+        throw new Error("STANDARD_CODEC_CONFIGURATION");
+      engine.#codecs.set(
+        media.toLowerCase(),
+        Object.freeze({ encode: codec.encode, decode: codec.decode }),
+      );
+    }
+    Object.defineProperty(engine, "options", {
+      value: Object.freeze({
+        seed: settings.seed,
+        limit: settings.limit,
+        allowWrite: settings.allowWrite,
+        allowRemote: settings.allowRemote,
+        timeout: settings.timeout,
+        totalTimeout: settings.totalTimeout,
+        followLinks: settings.followLinks,
+        allowCallbacks: settings.allowCallbacks,
+        callbackTimeout: settings.callbackTimeout,
+        linkDepth: settings.linkDepth,
+      }),
+      writable: false,
     });
     engine.#credentials = structuredClone(settings.credentials ?? {});
     if (
@@ -156,6 +209,7 @@ export class StandardEngine {
       engine.#description = await engine.#worker.call("compile", {
         source,
         documents: settings.documents,
+        documentURI: settings.documentURI,
       });
       return engine;
     } catch (error) {
@@ -171,7 +225,7 @@ export class StandardEngine {
   async plan() {
     if (this.#closed) throw new Error("STANDARD_ENGINE_CLOSED");
     if (this.#busy) throw new Error("STANDARD_ENGINE_BUSY");
-    if (this.#plan) return structuredClone(this.#plan);
+    if (this.#plan) return cloneExact(this.#plan);
     this.#busy = true;
     try {
       const catalog = [],
@@ -227,9 +281,9 @@ export class StandardEngine {
         blockers,
         truncated: scheduled.truncated,
         available: scheduled.available,
-        full_openapi_support: false,
+        ...STANDARD_CAPABILITIES,
       };
-      return structuredClone(this.#plan);
+      return cloneExact(this.#plan);
     } finally {
       this.#busy = false;
     }
@@ -237,6 +291,21 @@ export class StandardEngine {
   async validateRequest(test) {
     if (this.#closed) throw new Error("STANDARD_ENGINE_CLOSED");
     return this.#worker.call("request", { id: test.operation_id, test });
+  }
+  async resolveLinks(id, context) {
+    if (this.#closed) throw new Error("STANDARD_ENGINE_CLOSED");
+    return this.#worker.call("links", { id, context, seed: this.options.seed });
+  }
+  async validateCallback(id, name, expression, incoming) {
+    if (this.#closed) throw new Error("STANDARD_ENGINE_CLOSED");
+    return this.#worker.call("callback", {
+      id,
+      name,
+      expression,
+      incoming,
+      seed: this.options.seed,
+      credentials: this.#credentials,
+    });
   }
   async validateResponse(id, status, body, headers, empty = false) {
     if (this.#closed) throw new Error("STANDARD_ENGINE_CLOSED");
@@ -267,7 +336,9 @@ export class StandardEngine {
       return;
     const alternative = operation.security.find((requirement) =>
       Object.entries(requirement).every(([name, scopes]) => {
-        const credential = this.#credentials[name];
+        const credential = Object.hasOwn(this.#credentials, name)
+          ? this.#credentials[name]
+          : undefined;
         return (
           credential &&
           scopes.every((scope) => credential.scopes?.includes(scope))
@@ -319,7 +390,14 @@ export class StandardEngine {
           : "header:authorization",
         scheme.type === "apiKey"
           ? value
-          : (scheme.scheme?.toLowerCase() === "basic" ? "Basic " : "Bearer ") +
+          : (scheme.type === "http"
+              ? scheme.scheme.toLowerCase() === "basic"
+                ? "Basic"
+                : scheme.scheme.toLowerCase() === "bearer"
+                  ? "Bearer"
+                  : scheme.scheme
+              : "Bearer") +
+              " " +
               value,
       );
       if (scheme.type === "apiKey") {
@@ -335,7 +413,7 @@ export class StandardEngine {
             ].includes(scheme.name.toLowerCase())
           )
             throw new Error("STANDARD_AUTH_HEADER");
-          request.headers[scheme.name.toLowerCase()] = value;
+          setOwn(request.headers, scheme.name.toLowerCase(), value);
         } else
           request.headers.cookie =
             (request.headers.cookie ? request.headers.cookie + "; " : "") +
@@ -352,7 +430,9 @@ export class StandardEngine {
         scheme.scheme.toLowerCase() === "basic"
       )
         request.headers.authorization = "Basic " + value;
-      else throw new Error("STANDARD_AUTH_SCHEME_PENDING");
+      else if (scheme.type === "http")
+        request.headers.authorization = scheme.scheme + " " + value;
+      else throw new Error("STANDARD_AUTH_SCHEME");
     }
   }
   async run(base) {
@@ -370,7 +450,9 @@ export class StandardEngine {
       // Explicit base overrides servers, but is never silently inferred from a
       // remote document. Relative/templated servers are available offline below.
       const origin = guard.base(base);
-      for (const test of plan.cases) {
+      const queue = cloneExact(plan.cases),
+        linkedSeen = new Set();
+      for (const test of queue) {
         if (this.#closed) {
           blockers.push({ code: "engine_closed" });
           break;
@@ -390,30 +472,102 @@ export class StandardEngine {
           break;
         }
         let request, target;
+        const receivers = [];
         try {
-          if (
-            operation.blockers.some((b) => b === "custom_encoding_pending") ||
-            operation.method === "TRACE"
-          )
-            throw new Error("STANDARD_ENCODING_OR_TRACE_PENDING");
-          request = encodeRequest(operation, test);
-          target = new URL(origin.href.replace(/\/$/, "") + request.route);
+          if (operation.callbacks.length) {
+            if (!this.options.allowCallbacks)
+              throw new Error("STANDARD_CALLBACK_NOT_AUTHORIZED");
+            const declared = await this.#worker.call("callbacks", {
+              id: operation.id,
+            });
+            for (const callback of declared) {
+              if (test.negative) {
+                const value = expression(callback.expression, {
+                  request: requestContext(test),
+                });
+                if (value === undefined) continue;
+                try {
+                  new URL(value);
+                } catch {
+                  continue;
+                }
+              }
+              const receiver = await callbackReceiver(
+                (incoming) =>
+                  this.#worker.call("callback", {
+                    id: operation.id,
+                    ...callback,
+                    incoming,
+                    seed: this.options.seed,
+                    credentials: this.#credentials,
+                  }),
+                Math.min(
+                  this.options.callbackTimeout,
+                  Math.max(10, deadline - Date.now()),
+                ),
+              );
+              receivers.push(receiver);
+              if (!bindExpression(test, callback.expression, receiver.url))
+                throw new Error("STANDARD_CALLBACK_BINDING_REQUIRED");
+            }
+            if ((await this.validateRequest(test)).valid === test.negative)
+              throw new Error("STANDARD_CALLBACK_BINDING_SCHEMA");
+          }
+          request = await this.#worker.call("encode", {
+            id: operation.id,
+            test,
+          });
+          if (request.body !== undefined)
+            request.body = Buffer.from(request.body, "base64");
+          const encoder = this.#codecs.get(
+            test.media?.split(";")[0].toLowerCase(),
+          );
+          if (encoder && Object.hasOwn(test, "body")) {
+            request.body = Buffer.from(
+              await encoder.encode(cloneExact(test.body)),
+            );
+            if (request.body.length > 262144)
+              throw new Error("STANDARD_REQUEST_BUDGET");
+            request.headers["content-type"] = test.media;
+          }
+          const baseURL = test.link_server
+            ? new URL(resolveServer([test.link_server]), origin)
+            : origin;
+          guard.base(baseURL.href);
+          if (baseURL.origin !== origin.origin)
+            throw new Error("STANDARD_LINK_ORIGIN_NOT_AUTHORIZED");
+          target = new URL(baseURL.href.replace(/\/$/, "") + request.route);
           if (target.origin !== origin.origin || target.href.length > 8192)
             throw new Error("STANDARD_TARGET_BUDGET");
           this.#auth(operation, target, request);
-        } catch {
+          const wireContract = await this.#worker.call("wire-request", {
+            id: operation.id,
+            route: request.route,
+            headers: request.headers,
+            raw: request.body?.toString("base64"),
+            decodedBody:
+              encoder && request.body
+                ? await encoder.decode(request.body)
+                : undefined,
+          });
+          if (wireContract.valid !== !test.negative)
+            throw new Error("STANDARD_WIRE_CONTRACT_MISMATCH");
+        } catch (error) {
+          for (const receiver of receivers) await receiver.close();
           blockers.push({
             case_id: test.id,
             code: "serialization_or_auth_blocked",
+            reason: /^STANDARD_[A-Z_]+$/.test(error.message)
+              ? error.message
+              : "STANDARD_SERIALIZATION",
           });
           continue;
         }
         try {
-          const response = await fetch(target, {
+          const response = await standardHTTP(target, {
             method: operation.method,
             headers: request.headers,
             body: request.body,
-            redirect: "manual",
             signal: AbortSignal.any([
               this.#httpAbort.signal,
               AbortSignal.timeout(
@@ -424,58 +578,53 @@ export class StandardEngine {
               ),
             ]),
           });
-          const chunks = [];
-          let bytes = 0;
-          if (response.body) {
-            for await (const chunk of response.body) {
-              bytes += chunk.byteLength;
-              if (bytes > 1048576) throw new Error("STANDARD_RESPONSE_BUDGET");
-              chunks.push(chunk);
-            }
-          }
-          const headers = Object.fromEntries(response.headers.entries());
-          const media = (headers["content-type"] ?? "")
-            .split(";")[0]
-            .toLowerCase();
-          const raw =
-            media === "application/octet-stream"
-              ? Buffer.concat(chunks).toString("latin1")
-              : new TextDecoder("utf-8", { fatal: true }).decode(
-                  Buffer.concat(chunks),
-                );
-          let body = raw,
-            contract;
-          if (
-            operation.method !== "HEAD" &&
-            ![204, 304].includes(response.status) &&
-            (media === "application/json" || media.endsWith("+json"))
-          ) {
-            try {
-              body = JSON.parse(raw, (key, value, context) => {
-                if (
-                  typeof value === "number" &&
-                  (!Number.isFinite(value) ||
-                    (Number.isInteger(value) && !Number.isSafeInteger(value)))
-                )
-                  throw new Error("STANDARD_NUMERIC_PRECISION");
-                return value;
-              });
-            } catch {
-              contract = { valid: false, code: "invalid_json_or_precision" };
-            }
-          }
-          contract ??= await this.validateResponse(
-            operation.id,
-            response.status,
-            body,
-            headers,
-            bytes === 0,
+          const decoder = this.#codecs.get(
+            response.headers["content-type"]
+              ?.split(";")[0]
+              .trim()
+              .toLowerCase(),
           );
+          const decodedBody = decoder
+            ? await decoder.decode(response.raw)
+            : undefined;
+          const decoded = decoder
+            ? {
+                body: decodedBody,
+                contract: await this.validateResponse(
+                  operation.id,
+                  response.status,
+                  decodedBody,
+                  response.headers,
+                  response.raw.length === 0,
+                ),
+              }
+            : await this.#worker.call("decode", {
+                id: operation.id,
+                status: response.status,
+                headers: response.headers,
+                raw: response.raw.toString("base64"),
+              });
+          let body = decoded.body,
+            contract = decoded.contract;
           const oracle = policy("standard-oracle", {
             status: response.status,
             negative: test.negative,
             contract_valid: contract.valid,
           });
+          let callbacksValid = true;
+          for (const receiver of receivers)
+            if (
+              test.negative
+                ? receiver.records.length > 0
+                : !(await receiver.settle())
+            )
+              callbacksValid = false;
+          if (!callbacksValid) {
+            oracle.passed = false;
+            oracle.code = "callback_contract_or_timeout";
+            oracle.fingerprint =
+              String(response.status) + ":callback_contract_or_timeout";
+          }
           records.push({
             case_id: test.id,
             operation_id: operation.id,
@@ -483,7 +632,70 @@ export class StandardEngine {
             status: response.status,
             ...oracle,
             contract_code: contract.code,
+            ...(receivers.length
+              ? {
+                  callback_count: receivers.reduce(
+                    (n, r) => n + r.records.length,
+                    0,
+                  ),
+                  callbacks_valid: callbacksValid,
+                }
+              : {}),
           });
+          if (this.options.followLinks && !test.negative && contract.valid) {
+            try {
+              const links = await this.resolveLinks(operation.id, {
+                url: target.href,
+                method: operation.method,
+                status: response.status,
+                request: requestContext(test, request.headers),
+                response: { body, header: response.headers },
+              });
+              for (const link of links) {
+                if (!link.test || !link.valid) {
+                  blockers.push({
+                    case_id: test.id,
+                    code: link.code || "link_expression_or_contract",
+                  });
+                  continue;
+                }
+                const signature = stringifyExact({
+                  test: link.test,
+                  server: link.server,
+                });
+                if (linkedSeen.has(signature)) continue;
+                linkedSeen.add(signature);
+                if ((test.link_depth || 0) >= this.options.linkDepth) {
+                  blockers.push({ code: "link_depth_budget" });
+                  continue;
+                }
+                if (
+                  !this.#description.operations.some(
+                    (o) => o.id === link.operation.id,
+                  )
+                )
+                  this.#description.operations.push(link.operation);
+                if (queue.length >= this.options.limit) {
+                  blockers.push({ code: "link_case_budget" });
+                  break;
+                }
+                queue.push({
+                  ...link.test,
+                  id: `link-${queue.length + 1}`,
+                  link_depth: (test.link_depth || 0) + 1,
+                  link_server: link.server,
+                });
+              }
+            } catch (error) {
+              blockers.push({
+                case_id: test.id,
+                code: "link_resolution_blocked",
+                reason: /^STANDARD_[A-Z_]+$/.test(error.message)
+                  ? error.message
+                  : "STANDARD_LINK_RESOLUTION",
+              });
+            }
+          }
           if (Date.now() >= deadline) {
             blockers.push({ code: "total_deadline" });
             break;
@@ -500,27 +712,35 @@ export class StandardEngine {
               contract_valid: false,
             }),
           });
+        } finally {
+          for (const receiver of receivers) await receiver.close();
         }
       }
       const failed = records.filter((r) => !r.passed).length;
       return {
         version: VERSION,
         mode: "openapi-standard",
+        coverage_policy: {
+          links: this.options.followLinks,
+          callbacks: this.options.allowCallbacks,
+          case_budget: this.options.limit,
+        },
         seed: this.options.seed,
         document_valid: true,
-        planned: plan.cases.length,
+        planned: queue.length,
         executed: records.length,
         failed,
         blockers,
         truncated: plan.truncated,
         ...policy("standard-verdict", {
-          planned: plan.cases.length,
+          planned: queue.length,
           executed: records.length,
           failed,
           blocked: blockers.length,
           truncated: plan.truncated,
         }),
         records,
+        ...STANDARD_CAPABILITIES,
       };
     } finally {
       this.#busy = false;

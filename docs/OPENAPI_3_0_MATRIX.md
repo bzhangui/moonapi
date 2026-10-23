@@ -1,42 +1,32 @@
-# OpenAPI 3.0 完整兼容目标与当前缺口
+# OpenAPI 3.0 能力与验收矩阵
 
-## 0.4.0-rc.1 源码：当前验收矩阵
+0.4.0-rc.2 标准入口依据 [OAS 3.0.4](https://spec.openapis.org/oas/v3.0.4.html)。覆盖完整对象模型及该版本定义的 Schema 语言，不是精选 CRUD/JSON 子集；也不等于更大的 JSON Schema Draft-04、OpenAPI 3.1/3.2。旧纯 MoonBit 解析/CRUD 档仍有明确边界。
 
-目标是完整的 3.0 语义（JSON/YAML），不是选一些 CRUD 或 Schema 关键字作为最终范围。标准入口为 `moonapi-standard.mjs`；旧入口保留原兼容行为。**full_openapi_support=false，尚不能声明本次驳回已全部解决。**
+| 规范单元                                           | 实现与验证                                                                                        | 可查证据                                                                                                    |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| OpenAPI/Info/Contact/License/Tag/ExternalDocs/扩展 | JSON/YAML、版本、元数据、合法业务键、重复键拒绝，文字数据中的 $ref 不加载                         | conformance: all component、literal business；maintenance: YAML                                             |
+| Paths/PathItem/Operation                           | 八种方法、参数合并、路径必需、重复 operationId、歧义路径；TRACE 实际 HTTP                         | standard.test: structural invalidity；conformance: TRACE                                                    |
+| Components/Reference                               | 全组件种类、本地/外部/循环/RFC6901、3.0 ref 兄弟字段忽略、精确 URI 内容授予                       | conformance: all component、external operationRef、exact enum、file and non-network；maintenance: recursive |
+| Schema 基础/约束                                   | type/enum/multipleOf/边界与独占、长度/正则、集合/唯一/属性/required/additionalProperties、无 type | 固定 Draft-04 原始向量 81 个适用组/344 断言，另有 OAS 专项                                                  |
+| 组合、格式、方向、discriminator                    | allOf/anyOf/oneOf/not、nullable、format、readOnly/writeOnly；discriminator 不替代组合或改变父验证 | standard.test: contract；maintenance: nullable/direction；conformance: discriminator                        |
+| 精确数值                                           | signed int64、十进制比较/整除/枚举/唯一，JSON/YAML/线程/HTTP 全链                                 | conformance: lossless JSON、wire contracts、exact enum                                                      |
+| Parameter/Header                                   | path/query/header/cookie、全部规范样式/explode/allowReserved/content、忽略特殊请求头规则          | standard.test: styles/injection；conformance: wire round-trip、content                                      |
+| RequestBody/MediaType/Example                      | 必需/可选/空体、声明媒体及通配选择、内联/引用/外部值                                              | maintenance: multiple media；conformance: wildcard、literal；standard-worker                                |
+| Encoding                                           | URL 表单 contentType 与显式样式优先级；multipart 媒体/头/数组/文件/二进制及适用条件               | conformance: Encoding Object、form defaults；线上请求反解复核                                               |
+| XML                                                | name/namespace/prefix/attribute/wrapped、组合、数组、精确值、DTD/XXE 拒绝                         | conformance: XML metadata/namespaces；真实 XML echo、advanced demo                                          |
+| Responses                                          | exact/range/default、媒体/headers、方向、HEAD/204/304、空体/未声明正文                            | standard.test: responses；maintenance: headers/binary/empty；conformance: content headers                   |
+| Server/ServerVariable                              | 继承、默认/枚举、相对地址、显式 base 与 origin/TLS 门禁                                           | standard.test: server variables；standard.mjs                                                               |
+| Security/OAuthFlows/Requirements                   | apiKey/HTTP/OAuth2/OpenID、AND/OR/空覆盖、scopes、凭据冲突及回调认证                              | maintenance: security/collision；conformance: prototype-named authentication                                |
+| Link/表达式                                        | operationId/operationRef、外部 OAD、qualified 参数/body/server、保类型/缺值、跟随/去重/预算       | conformance: expressions/Links/external operationRef；advanced demo                                         |
+| Callback                                           | 授权 loopback 接收、地址绑定、请求/认证/契约、声明响应/头、关联/清理；独立接收适配 API            | conformance: healthy/fault、contracts/timeout；advanced demo                                                |
+| 生成/判定                                          | 公平调度、正负/参数/正文/组合边界；独立标签验证、线上再验证、MoonBit oracle/verdict               | core/standard_wbtest、standard tests、HTTP 控制示例                                                         |
 
-| 单元            | 本轮实际进展                                                                                                                             | 仍需完成的门禁                                                                                            |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| 文档与引用      | JSON/YAML 1.2、官方结构 Schema、重复键检测、路径参数/安全需求一致性；本地及递归引用、显式授予外部文档；19 操作官方 Petstore 定义只读导入 | 更广完整文档语义一致性套件；不能把结构 Schema 检查称为完整规范证明                                        |
-| Schema 与方向   | 独立原始约束校验：无 type、组合 allOf/oneOf/anyOf/not、enum/nullable、数值、长度/集合/属性、字典、pattern/已知 format、读写方向          | discriminator/组合/继承的更广交互证据，精确 int64/十进制与所有合法输入的一致性；未知 format 依法回退 type |
-| 自动测试生成    | 固定 seed、各操作公平调度、有效/无效正文、属性边界及必需参数遗漏；生成后独立校验标签                                                     | 更强约束搜索、参数/组合边界、真实依赖图及更广服务检出率；不能把有限搜索失败说成规范无解                   |
-| 参数            | path/query/header/cookie；标量/一层数组对象；simple/form/label/matrix/deepObject/space/pipe 的已测线格式；content 参数                   | 所有合法 style/explode/allowReserved 交互的规范与 HTTP 矩阵；保留分隔符和不确定线格式阻塞                 |
-| 请求媒体        | JSON/+json、text、URL 表单、默认 multipart 及 octet-stream；空/可选正文分支                                                              | XML、完整 Encoding 对象和复杂多部分文件的端到端证据；不能把 FormData 可构造当全媒体支持                   |
-| 响应契约        | 精确/范围/default、媒体匹配、响应头标量/数组/对象、组合 Schema、HEAD/204 空体；原始 JSON/精度门禁                                        | 更多媒体/二进制与内容协商交互、完整 XML 语义                                                              |
-| 服务与认证      | 层级 servers/变量离线解析；显式 base、凭据、AND/OR/scopes 声明；apiKey/Basic/Bearer/OAuth2/OpenID 注入                                   | TRACE、更多 HTTP 认证方案、实际 token 能力与所有继承/覆盖交互；不把注入令牌称为自动登录                   |
-| Links/Callbacks | 原文保留、文档结构校验、识别为未执行义务并阻塞完整性                                                                                     | 自动链接/operationRef、运行时表达式、授权回调接收、关联、断言和资源清理                                   |
-| 执行与维护      | MoonBit 调度/oracle/verdict 四目标可测试；隔离工作线程、资源预算和去敏报告；独立报价/搜索健康/故障对照                                   | 更广标准层一致性、各媒体实际 HTTP 和独立消费者；真实用户/长期效果仍无授权证据                             |
+## 门禁与结果解释
 
-模块验证、文档导入、计划生成、本次执行完成、完整标准兼容是不同层次。保留外部文档/远程/写入授权和资源预算不等于支持子集，但**未实现的标准语义就是缺口**，不得换成 `true`。详见 [标准入口](STANDARD_ENGINE.md)。
+full_openapi_support=true 表示标准入口按上述全范围实现和维护，**不是第三方认证、无 bug 保证，或穷尽所有业务**。third_party_certification=false、exhaustive_business_coverage=false。单次 passed/complete 由执行数量、失败、授权和预算另行决定；便携策略不会由一次采样证明全标准兼容。
 
-## 历史：0.3.0 原生有界解析档
+规范未定义/实现相关行为（嵌套参数、Cookie、空值/空数组、XML 根名/命名空间、Path Item ref 相邻冲突）采用 [公开策略](STANDARD_ENGINE.md)。私有媒体内部格式需要受信任 codec；固定/响应派生回调地址需使用者的可控接收适配，不能自动改写真实系统 URL。权限、预算、表示或唯一定位条件不满足时不能报告完成。
 
-依据 [OpenAPI 3.0.3 官方规范](https://spec.openapis.org/oas/v3.0.3.html) 建立工作清单。目标是完整的 3.0 JSON 文档语义，不是“只把 JSON 读进来”。**当前 full_standard_support = false**；本轮独立状态引擎增强不等于下表全部完成。不能据此声称已经消除所有复审缺口。
+tests/vectors 保存 21 份上游原始文件和许可。81 个适用组含 344 断言；23 个组使用 OAS 3.0 自身不支持的 JSON Schema 词汇/类型（如 patternProperties、null type、数组形式 type/items），未冒称为合法 OAS Schema。没有排除合法 OAS 约束来取得绿灯。向量不是官方 OpenAPI 全规范认证；其余对象由另外的 OAS 正反例及真实 HTTP 受控对照覆盖。
 
-| 单元              | 当前事实                                                                                            | 达成完整目标所需工作与证据                                                                      |
-| ----------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| 文档结构/版本     | 已知 3.0 patch 版本；有界 paths/operations；缺 operationId 时稳定派生 METHOD /path                  | 完整结构验证、所有合法可选字段及扩展字段                                                        |
-| 引用              | 本地非递归参数、requestBodies、responses、schemas 组件；RFC6901 转义；同类引用链；循环/兄弟字段拒绝 | 其余引用对象、跨文件/远程显式加载、循环与合法 ref 兄弟语义及资源错误分类                        |
-| Schema 基础       | 标量/对象/数组、枚举、必填、部分边界、nullable                                                      | 无 type、完整数值/集合/属性约束、schema 形式附加属性                                            |
-| Schema 组合与语义 | readOnly/writeOnly 属性与 required 按请求/响应投影（含数组/对象嵌套），其它所列项仍拒绝             | allOf/anyOf/oneOf/not、discriminator、pattern/format、XML/byte/binary；更广的组合与方向语义证据 |
-| 参数              | 标量 path/query，明确样式                                                                           | header/cookie、数组/对象、全部合法 style/explode/allowReserved、content 参数及重复名称作用域    |
-| 请求媒体/编码     | application/json                                                                                    | 多媒体选择、表单/多部分/文件/二进制、Encoding 对象及空/可选请求体                               |
-| 响应              | 精确状态/default、JSON/空体及 HEAD                                                                  | 状态范围、媒体协商、headers、引用和 Links/运行时表达式                                          |
-| 服务与路径        | 显式 base；基本路径模板                                                                             | 层级 servers/变量、所有合法 HTTP 方法、规范 URL/路径/编码与作用域                               |
-| 安全需求          | 外部手工 Bearer；未求值的声明拒绝                                                                   | apiKey/Basic/Bearer/OAuth2/OpenID 的凭据注入、AND/OR/覆盖语义；不把自动登录等同于所有认证支持   |
-| 回调              | 未实现，拒绝                                                                                        | 显式授权回调接收器、请求关联、运行时表达式、接口断言和资源清理                                  |
-| 实验适配失败门禁  | 未实现的活动约束不能静默忽略                                                                        | 每项有正例、边界/拒绝、HTTP 端到端和跨目标公开 API 测试                                         |
-| 独立行为层        | 本轮实际实现                                                                                        | 在上述更广描述中验证状态模型、数据依赖和重置重放，不与单纯契约覆盖混计                          |
-
-顺序：先描述/引用与完整 Schema，再参数/媒体/响应，再服务/认证/Links/Callbacks；每阶段扩展之前固定规范夹具和兼容回归。允许资源预算，但预算错误应与“标准不合法”区分，不能靠缩小输入域宣称标准全覆盖。
-
-最终门禁：所有标准单元有可查测试、所有声明能力均有真实执行样例、跨平台 CI 和独立消费者通过；仍有未实现语义时，不允许把文档/CLI 的完整支持标记改为 true。YAML 已加入新标准入口；3.1/3.2、GraphQL/gRPC 是另行范围，不混称为本次 3.0 全量目标。
+本轮新增源码未发布 Mooncakes。验收以本轮 QUALITY_REPORT 和当前提交 CI 为准，不用 0.3.0 注册表或旧 CI 代替新证据。真实用户、同条件竞品检出率和长期生产效果仍待授权，不以模拟冒称。

@@ -145,7 +145,7 @@ test("standard plan accepts composition regex arrays header cookie and status ra
     );
     for (const c of plan.cases)
       assert.equal((await engine.validateRequest(c)).valid, !c.negative);
-    assert.equal(plan.full_openapi_support, false);
+    assert.equal(plan.full_openapi_support, true);
     assert.deepEqual(await engine.plan(), plan);
   });
 });
@@ -307,7 +307,7 @@ test("explicit external reference grants resolve without ambient file or network
     "file:///C:/private.json";
   await assert.rejects(StandardEngine.open(JSON.stringify(d)), /STANDARD_/);
 });
-test("unexecuted Links and Callbacks remain explicit blockers not full support", async () => {
+test("Links and Callbacks compile without feature blockers but do not imply execution coverage", async () => {
   const d = document();
   d.paths["/quote"].post.responses[400].links = {
     next: { operationId: "search" },
@@ -324,11 +324,13 @@ test("unexecuted Links and Callbacks remain explicit blockers not full support",
   };
   await withEngine(d, async (engine) => {
     const plan = await engine.plan();
-    assert.ok(plan.blockers.some((b) => b.code === "links_execution_pending"));
+    assert.deepEqual(plan.blockers, []);
     assert.ok(
-      plan.blockers.some((b) => b.code === "callbacks_execution_pending"),
+      engine.description.operations.some((o) =>
+        o.callbacks.includes("callback"),
+      ),
     );
-    assert.equal(plan.full_openapi_support, false);
+    assert.equal(plan.full_openapi_support, true);
   });
 });
 test("OAS style serialization preserves tokens and required separators", () => {
@@ -342,12 +344,14 @@ test("OAS style serialization preserves tokens and required separators", () => {
   );
   assert.deepEqual(param("query", "form", true, [3, 4]), ["id=3", "id=4"]);
   assert.deepEqual(param("query", "deepObject", true, { role: "a b" }), [
-    "id[role]=a%20b",
+    "id%5Brole%5D=a%20b",
   ]);
   assert.deepEqual(param("query", "spaceDelimited", false, [3, 4]), [
     "id=3%204",
   ]);
-  assert.deepEqual(param("query", "pipeDelimited", false, [3, 4]), ["id=3|4"]);
+  assert.deepEqual(param("query", "pipeDelimited", false, [3, 4]), [
+    "id=3%7C4",
+  ]);
   assert.deepEqual(param("header", "simple", true, { role: "admin" }), [
     "id",
     "role=admin",
@@ -367,11 +371,12 @@ test("serialization refuses header injection dot segments and unbound templates"
       { parameters: [{ name: "id", in: "path", value: ".." }] },
     ),
   );
-  assert.throws(() =>
+  assert.deepEqual(
     serializeParameter(
       { name: "q", in: "query", allowReserved: true },
       "a&b=1",
     ),
+    ["q=a%26b%3D1"],
   );
 });
 test("server variables validate enum and do not automatically authorize remote targets", () => {
@@ -393,8 +398,12 @@ async function fixture(bug = false) {
     const url = new URL(req.url, "http://fixture.invalid");
     let ok;
     if (url.pathname === "/search") {
+      const tags = url.searchParams.getAll("tags");
       ok =
-        url.searchParams.getAll("tags").length > 0 &&
+        tags.length > 0 &&
+        tags.length <= 2 &&
+        new Set(tags).size === tags.length &&
+        tags.every((t) => ["blue", "red"].includes(t)) &&
         req.headers["x-client"] === "synthetic" &&
         req.headers.cookie?.includes("session=fixture");
       if (ok) res.setHeader("x-count", "2");

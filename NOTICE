@@ -9,6 +9,9 @@ Schemathesis is referenced for a documented capability comparison only.
 The optional Node standards adapter uses pinned Swagger Parser (MIT),
 Ajv Draft-04 and ajv-formats (MIT), OpenAPI Enforcer (Apache-2.0), and
 yaml (ISC), with transitive dependencies listed in docs/THIRD_PARTY.md.
+The standards adapter also uses lossless-json 4.3.3 (MIT) and saxes 6.0.0
+(ISC), with xmlchars 2.2.0 (MIT). The pinned JSON Schema Test Suite vectors
+retain their upstream MIT notice in tests/vectors/LICENSE.
 They are installed separately with npm ci; their upstream notices/licenses
 remain in those packages. The dependency-free legacy runtime bundle does not
 include these libraries or the new standards entry point.

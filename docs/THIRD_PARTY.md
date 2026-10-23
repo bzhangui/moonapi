@@ -9,6 +9,8 @@
 | ajv-formats                 | 3.0.1    | MIT        | 已知 format 验证；未知 format 按 OAS 回退到 type |
 | openapi-enforcer            | 1.23.0   | Apache-2.0 | 产生候选值；不作为契约裁判或全标准支持证明       |
 | yaml                        | 2.9.1    | ISC        | YAML 1.2/JSON 解析、重复键和别名预算             |
+| lossless-json               | 4.3.3    | MIT        | 精确 JSON 数字词法和工作线程消息                 |
+| saxes                       | 6.0.0    | ISC        | XML 语法/命名空间解析，拒绝 DTD；不解析外部实体  |
 
 传递依赖的当前清单（包名/版本/声明许可证）：
 
@@ -17,6 +19,9 @@
 - js-yaml 5.5.0 MIT、嵌套 js-yaml 4.3.2 MIT；argparse 3.0.3 PSF-2.0、嵌套 argparse 2.0.1 Python-2.0。
 - call-me-maybe 1.0.2 MIT；drange 1.1.1 MIT；fast-deep-equal 3.1.3 MIT；fast-uri 3.1.9 BSD-3-Clause；json-schema-traverse 1.0.0 MIT。
 - randexp 0.5.3 MIT；require-from-string 2.0.2 MIT；ret 0.2.2 MIT。
+- xmlchars 2.2.0 MIT（saxes 的 XML 字符分类依赖）。
+
+独立测试向量：`tests/vectors/draft4` 来自 JSON-Schema-Test-Suite，固定提交 `89e83a74014617ffbe79a56d83d14d054cd11417`，保留原样文件及 `tests/vectors/LICENSE`（MIT）。完整原始文件没有删减；执行器明确区分 OpenAPI 3.0 自身没有定义的 JSON Schema 词汇与适用的测试组，不能把更大的 JSON Schema 语言混称为 OpenAPI 3.0。
 
 上游版权和许可证全文由 npm 包的 LICENSE 等文件保留。不将 `node_modules`、上游后端二进制或数据库放进 Git/Mooncakes；也不把第三方能力冒称 MoonBit 原生实现。如果将来重新分发含标准层的独立运行包，必须一并复制这份清单、相应上游版权和许可全文，并核验精确文件集。当前旧便携运行包仍只带原有无 npm 依赖的三个入口，未包含新标准层。
 

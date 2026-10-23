@@ -1,12 +1,12 @@
 # MoonAPI
 
-以 MoonBit 为主要实现语言的 OpenAPI 驱动接口测试项目：从接口描述生成有效、边界和无效测试，验证请求/响应契约，并以状态依赖与失败序列缩减增强跨步骤业务回归。CRUD 只是接入档之一，不再作为全部核心范围。**完整 OpenAPI 3.0（JSON/YAML）是验收目标，目前仍未全部实现，不应宣称已完整支持。**
+以 MoonBit 为主要计算核心的 OpenAPI 驱动接口测试项目：从接口描述生成有效、边界和无效测试，验证请求/响应契约，并以状态依赖与失败序列缩减增强跨步骤业务回归。CRUD 只是接入档之一。**标准入口面向完整 OpenAPI 3.0（JSON/YAML）对象模型和规范语义，按 3.0.4 澄清实现；下方旧便携入口仍是有界档，不冒称具有标准入口的能力。**
 
 [源码](https://github.com/bzhangui/moonapi) · [CI](https://github.com/bzhangui/moonapi/actions) · [验收与测试](docs/QUALITY_REPORT.md) · [使用与限制](docs/OPERATIONS.md)
 
 ## 已实现与用途
 
-### 优先核验：OpenAPI 测试生成与契约验证（0.4.0-rc.1 源码）
+### 优先核验：OpenAPI 测试生成与契约验证（0.4.0-rc.2 源码）
 
 本轮针对“功能范围偏窄、缺少测试生成和契约验证”的反馈增加独立标准适配入口，不删去文档中旧入口不认识的字段，也不把组件定义能读进来等同于全部语义已执行。
 
@@ -16,6 +16,7 @@ npm run build
 node bin/moonapi-standard.mjs check examples/standard-spec.json
 node bin/moonapi-standard.mjs plan examples/standard-spec.json
 npm run demo:standard
+npm run demo:advanced
 # 仅限已授权隔离环境；POST 即使是报价接口也必须明确允许写入。
 node bin/moonapi-standard.mjs run your-openapi.yaml --base http://127.0.0.1:8080 --allow-write
 ```
@@ -23,15 +24,16 @@ node bin/moonapi-standard.mjs run your-openapi.yaml --base http://127.0.0.1:8080
 - JSON/YAML 1.2、规范文档结构校验、本地/递归引用；外部文档必须逐个显式提供，不自动读取磁盘或访问网络。
 - 组合及约束：allOf/anyOf/oneOf/not、nullable、字典、数值/长度/集合约束、pattern、已知 format、读写方向；合法组合不因候选生成库限制而被判为非法。
 - 每个操作独立生成有效值和已验证为无效的请求体、必需参数遗漏及边界候选；固定种子、操作公平调度，预算截断和无法生成均不报全通过。
-- path/query/header/cookie 参数及常用复杂样式、JSON/text/表单/默认 multipart/octet-stream 编码；状态范围/default、媒体类型、响应头和方向性 Schema 校验。
+- path/query/header/cookie 的规范样式、explode/allowReserved/content；JSON/XML/text、完整 Encoding 对象、URL 表单、多部分文件和二进制。响应覆盖状态范围/default、媒体协商、响应头及方向性 Schema。
+- 无损 int64/十进制约束、XML 命名空间/属性/数组、TRACE，以及运行时表达式、operationId/operationRef Links 和临时授权回调接收器。请求在线编码后再次验证，避免序列化或认证覆盖改变负例含义。
 - 显式凭据的 apiKey/Basic/Bearer/OAuth2/OpenID 注入、AND/OR 与作用域声明门禁；不是自动登录或令牌实际权限审计。
 - 报告去敏、默认只读、远端另授权、不跟随重定向、CPU/内存/HTTP/资源预算；MoonBit 决定调度、响应判定和完整性门禁。
 
 [标准入口使用说明](docs/STANDARD_ENGINE.md) 给出 API、凭据、跨文件引用、范围与错误语义。报价/搜索健康对照和注入故障均可运行，不是外部用户生产试点。官方 Petstore 定义只读核验见维护记录，绝不自动测试其写接口。
 
-**未完成：XML 语义、完整 Encoding、Links/Callbacks 执行、TRACE 传输、无损大整数及更广一致性证据等。** 这些会明确阻塞完整性；当前 `full_openapi_support=false`，导入、生成、某次执行通过和完整标准兼容是四件事。下方旧计算核心/CRUD/状态入口仍保留兼容，不能用标准适配层能力替它们做宣传。
+本轮补齐上一版所列的活动功能缺口。标准入口的 `full_openapi_support=true` 是按公开矩阵和测试维护的**能力声明，不是第三方认证，也不是一次采样证明全部业务无误**。`passed/complete` 另由执行数量、错误、授权和预算决定。规范没有定义的嵌套 deepObject、Cookie 歧义、空值等采用公开策略；自定义媒体使用受信任 codec 扩展，不把任意媒体冒当 JSON。Callbacks 不会擅自访问外部接收系统，响应派生/固定地址须由调用方提供可控环境与接收适配，不能自动把其 URL 改为本机地址。见 [标准矩阵](docs/OPENAPI_3_0_MATRIX.md)。
 
-本地源码版本为 **0.4.0-rc.1，尚未发布 Mooncakes**；已发布的 0.3.0 包不包含本轮标准入口与新增 policy API。安装版本和独立消费核验见 [发布记录](docs/PUBLICATION.md)。针对接入成本、兼容性及增量价值的反馈，见 [本轮整改](docs/REVIEW_REMEDIATION.md)、[工具对照](docs/COMPARISON.md)、[独立后端证据](docs/INTEGRATION_EVIDENCE.md)；完整标准缺口见 [兼容矩阵](docs/OPENAPI_3_0_MATRIX.md)。
+源码版本为 **0.4.0-rc.2，尚未发布 Mooncakes**；已发布的 0.3.0 包不包含本轮标准入口与新增 policy API。安装版本和独立消费核验见 [发布记录](docs/PUBLICATION.md)。反馈整改见 [本轮说明](docs/REVIEW_REMEDIATION.md)、[工具对照](docs/COMPARISON.md)、[独立后端证据](docs/INTEGRATION_EVIDENCE.md)。本轮不发布注册表或桌面运行包。
 
 ### 优先使用：免手写模型的资源回归
 

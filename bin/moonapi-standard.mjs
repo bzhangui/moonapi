@@ -12,6 +12,8 @@ try {
   const booleans = {
     "--allow-write": "allowWrite",
     "--allow-remote": "allowRemote",
+    "--follow-links": "followLinks",
+    "--allow-callbacks": "allowCallbacks",
   };
   for (let i = 0; i < args.length; i++) {
     const key = args[i];
@@ -53,8 +55,9 @@ try {
         {
           document_valid: true,
           operations: engine.description.operations.length,
-          full_openapi_support: false,
-          note: "Document validity is not execution or full compatibility proof.",
+          full_openapi_support: engine.description.full_openapi_support,
+          third_party_certification: false,
+          note: "Document validity is not execution coverage or third-party certification.",
         },
         null,
         2,
@@ -72,7 +75,7 @@ try {
           negative: plan.cases.filter((c) => c.negative).length,
           blockers: plan.blockers.map((b) => ({ code: b.code })),
           truncated: plan.truncated,
-          full_openapi_support: false,
+          full_openapi_support: plan.full_openapi_support,
         },
         null,
         2,

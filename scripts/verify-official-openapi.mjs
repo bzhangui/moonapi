@@ -35,7 +35,7 @@ try {
             plan.blockers.filter((b) => b.code === code).length,
           ]),
         ),
-        full_openapi_support: false,
+        full_openapi_support: plan.full_openapi_support,
         api_requests_executed: 0,
         production_or_user_pilot: false,
       },

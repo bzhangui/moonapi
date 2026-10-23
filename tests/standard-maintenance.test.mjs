@@ -186,9 +186,12 @@ test("multiple request media and optional-body branches are generated and revali
       assert.ok(c, media);
       const wire = encodeRequest(engine.description.operations[0], c);
       if (media === "multipart/form-data") {
-        assert.ok(wire.body instanceof FormData);
-        assert.ok(wire.body.get("file") instanceof Blob);
-        assert.equal(wire.headers["content-type"], undefined);
+        assert.ok(Buffer.isBuffer(wire.body));
+        assert.match(wire.body.toString(), /name="file"/);
+        assert.match(
+          wire.headers["content-type"],
+          /^multipart\/form-data; boundary=/,
+        );
       } else assert.equal(wire.headers["content-type"], media);
     }
     assert.ok(plan.cases.some((c) => c.reason === "optional_body_omitted"));
@@ -461,7 +464,7 @@ test("generation failures and regex CPU limits are explicit, never empty green p
   );
 });
 
-test("JSON empty-body and unsafe-integer responses cannot pass even an unconstrained schema", async () => {
+test("empty JSON fails and exact large-integer JSON succeeds without rounding", async () => {
   for (const raw of ["", "9007199254740993"]) {
     const d = minimal({});
     const f = await server((req, res) => {
@@ -473,12 +476,19 @@ test("JSON empty-body and unsafe-integer responses cannot pass even an unconstra
         d,
         async (engine) => {
           const r = await engine.run(f.base);
-          assert.equal(r.passed, false);
-          assert.ok(
-            r.records.some(
-              (r) => r.contract_code === "invalid_json_or_precision",
-            ),
-          );
+          if (raw !== "")
+            assert.ok(
+              r.records.filter((r) => !r.negative).every((r) => r.passed),
+              JSON.stringify(r),
+            );
+          else assert.equal(r.passed, false);
+          if (raw === "")
+            assert.ok(
+              r.records.some(
+                (r) => r.contract_code === "invalid_json_or_precision",
+              ),
+              JSON.stringify(r),
+            );
         },
         { allowWrite: true },
       );
@@ -600,10 +610,6 @@ test("capability audit distinguishes business discriminator fields and examples 
   });
   rule.discriminator = { propertyName: "discriminator" };
   await use(minimal(rule), async (engine) => {
-    assert.ok(
-      (await engine.plan()).blockers.some(
-        (b) => b.code === "discriminator_interactions_pending",
-      ),
-    );
+    assert.deepEqual((await engine.plan()).blockers, []);
   });
 });
