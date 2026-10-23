@@ -296,20 +296,36 @@ function metadata(id, op, item) {
   const security = op.security ?? definition.security ?? [];
   const blockers = [];
   if (op.__moonapi_method === "trace") blockers.push("trace_transport_pending");
+  const definitions = [
+    body,
+    ...op.allParameters,
+    ...Object.values(op.responses),
+    ...Object.values(op.responses).flatMap((r) =>
+      Object.values(r.headers ?? {}),
+    ),
+  ];
   const scanned = new Set(),
-    stack = [
-      op.requestBody,
-      ...op.allParameters,
-      ...Object.values(op.responses),
-    ];
+    stack = definitions.flatMap((v) => [
+      v?.schema,
+      ...Object.values(v?.content ?? {}).map((m) => m.schema),
+    ]);
   while (stack.length) {
     const value = stack.pop();
     if (!value || typeof value !== "object" || scanned.has(value)) continue;
     scanned.add(value);
     if (value.discriminator)
       blockers.push("discriminator_interactions_pending");
-    for (const v of Object.values(value))
-      if (v && typeof v === "object") stack.push(v);
+    // Walk Schema Objects only. A business property/header/example named
+    // "discriminator" is not an active OAS Discriminator Object.
+    stack.push(
+      value.items,
+      value.not,
+      value.additionalProperties,
+      ...Object.values(value.properties ?? {}),
+      ...(value.allOf ?? []),
+      ...(value.anyOf ?? []),
+      ...(value.oneOf ?? []),
+    );
   }
   if (Object.keys(op.callbacks ?? {}).length)
     blockers.push("callbacks_execution_pending");

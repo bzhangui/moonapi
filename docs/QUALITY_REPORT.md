@@ -5,7 +5,7 @@
 本机 Windows x64、Node 24.15.0、项目私有 moon 0.1.20261012 / moonc 0.10.15。未修改全局 SDK、其他项目或凭据。最终统一入口 `node scripts/validate.mjs` 退出 0；不以测试文件存在代替执行证据。
 
 - 29 个不同 MoonBit 核心用例在 JS/Wasm/Wasm-GC/Native 各通过一次，共 116 次执行；四目标 check、release build、deny-warn、fmt 和原三类消费者通过。
-- 106 项 Node 回归，0 失败/0 跳过；其中新增标准专项 27 项，另有依赖/许可锁定回归。涵盖组合兄弟约束、not/nullable/enum、格式/字典/递归、读写方向、授权引用、YAML/重复键、header/cookie、表单/多部分/二进制、响应范围/头、认证 AND/OR/目标冲突、关闭后零请求、CPU/精度/空 JSON/重定向/隐私及真实 CLI 退出码。
+- 107 项 Node 回归，0 失败/0 跳过；其中新增标准专项 28 项，另有依赖/许可锁定回归。涵盖组合兄弟约束、not/nullable/enum、格式/字典/递归、读写方向、授权引用、YAML/重复键、header/cookie、表单/多部分/二进制、响应范围/头、认证 AND/OR/目标冲突、关闭后零请求、CPU/精度/空 JSON/重定向/隐私及真实 CLI 退出码。末次审查还修复了将业务字段/示例名 `discriminator` 错当标准语义的保守误阻塞。
 - 非 CRUD 报价/搜索演示：健康计划 19 项全部执行通过，注入故障同计划检出 7 项失败，双方结果与预期一致；缺陷对照的失败不是维护脚本失败。只在临时回环 HTTP 服务使用合成资料，不是外部用户试点。
 - 原状态/库存及自动 CRUD 演示全部通过：依赖保持的 8→3、8→4、6→5 与资源档 6→3 见证仍成立，健康与故障对照保留。
 - 核心覆盖 1233/1451（约 85.0%），新 standard policy 55/61。这是 MoonBit 核心行覆盖，不是 Node/标准兼容率或所有业务分支覆盖。
@@ -16,7 +16,9 @@
 
 首次完整维护在旧 `behavior-demo.mjs` 子进程异常退出，未获得明确原因，未将该轮称为通过；单独重跑和随后完整重跑通过。维护命令已补退出码/信号诊断，避免以后只看到笼统失败。
 
-完整 OpenAPI 仍未实现：XML/完整 Encoding、Links/Callbacks、TRACE、discriminator 更广交互、无损数值及全面一致性证据继续列为缺口，不能因以上绿线改成“完整支持”。本轮 GitHub/CI 状态另列后续核验；历史 0.3.0 注册表与 CI 不证明本轮标准层。
+源码提交 `eaa566d` 的 [三平台 CI](https://github.com/bzhangui/moonapi/actions/runs/39950940325) 已实际通过，含 Linux 独立 PocketBase/SQLite；该提交有 106 项 Node 回归，最后误阻塞修复增加为上列 107 项。新源码不能借用历史 0.3.0 注册表证明已经发布。
+
+完整 OpenAPI 仍未实现：XML/完整 Encoding、Links/Callbacks、TRACE、discriminator 更广交互、无损数值及全面一致性证据继续列为缺口，不能因以上绿线改成“完整支持”。
 
 ## 2026-10-22：0.3.0 发布复核
 

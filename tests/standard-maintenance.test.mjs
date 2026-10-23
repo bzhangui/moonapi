@@ -587,3 +587,23 @@ test("closed engines cannot reuse a cached plan to send HTTP and metadata cannot
     await f.close();
   }
 });
+
+test("capability audit distinguishes business discriminator fields and examples from Schema semantics", async () => {
+  const rule = {
+    type: "object",
+    required: ["discriminator"],
+    properties: { discriminator: { type: "string", enum: ["business-value"] } },
+    example: { discriminator: "business-value" },
+  };
+  await use(minimal(rule), async (engine) => {
+    assert.deepEqual((await engine.plan()).blockers, []);
+  });
+  rule.discriminator = { propertyName: "discriminator" };
+  await use(minimal(rule), async (engine) => {
+    assert.ok(
+      (await engine.plan()).blockers.some(
+        (b) => b.code === "discriminator_interactions_pending",
+      ),
+    );
+  });
+});
