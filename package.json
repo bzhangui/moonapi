@@ -1,8 +1,24 @@
 {
   "name": "moonapi-tool",
-  "version": "0.3.0",
+  "version": "0.4.0-rc.1",
   "private": true,
   "type": "module",
-  "engines": {"node": ">=22"},
-  "scripts": {"build": "node scripts/build.mjs", "test": "node --test tests/*.test.mjs", "validate": "node scripts/validate.mjs", "demo": "node examples/demo.mjs", "demo:behavior":"node examples/behavior-demo.mjs"}
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "validate": "node scripts/validate.mjs",
+    "demo": "node examples/demo.mjs",
+    "demo:behavior": "node examples/behavior-demo.mjs",
+    "demo:standard": "node examples/standard-demo.mjs"
+  },
+  "dependencies": {
+    "@apidevtools/swagger-parser": "13.1.0",
+    "ajv-draft-04": "1.0.0",
+    "ajv-formats": "3.0.1",
+    "openapi-enforcer": "1.23.0",
+    "yaml": "2.9.1"
+  }
 }

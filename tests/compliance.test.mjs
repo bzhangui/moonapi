@@ -22,3 +22,27 @@ test("project and bundled core license attributions identify the correct owners"
   assert.ok(notice.includes(original[0]));
   assert.match(core, /Version 2\.0, January 2004/);
 });
+
+test("standards adapter dependency graph is locked, licensed and privacy boundaries remain", () => {
+  const root = new URL("../", import.meta.url);
+  const pkg = JSON.parse(
+    fs.readFileSync(new URL("package.json", root), "utf8"),
+  );
+  const lock = JSON.parse(
+    fs.readFileSync(new URL("package-lock.json", root), "utf8"),
+  );
+  assert.equal(lock.packages[""].version, pkg.version);
+  const text = fs.readFileSync(new URL("docs/THIRD_PARTY.md", root), "utf8");
+  for (const [name, version] of Object.entries(pkg.dependencies)) {
+    assert.match(version, /^\d+\.\d+\.\d+$/);
+    assert.equal(lock.packages["node_modules/" + name].version, version);
+    assert.ok(text.includes(name) && text.includes(version));
+  }
+  for (const [name, entry] of Object.entries(lock.packages)) {
+    if (!name) continue;
+    assert.ok(entry.integrity && entry.license);
+    assert.ok(!name.includes(".."));
+  }
+  const ignored = fs.readFileSync(new URL(".gitignore", root), "utf8");
+  assert.ok(ignored.includes("*申报书*.md") && ignored.includes(".local/"));
+});

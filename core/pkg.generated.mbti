@@ -41,6 +41,12 @@ pub fn sequence_candidates(Json) -> Array[Json] raise TestError
 
 pub fn shrink_candidates(Operation, Case) -> Array[Case] raise TestError
 
+pub fn standard_oracle(Int, Bool, Bool) -> Json raise TestError
+
+pub fn standard_schedule(Json, Int, Int) -> Json raise TestError
+
+pub fn standard_verdict(Int, Int, Int, Int, Bool) -> Json raise TestError
+
 pub fn text(Json) -> String raise TestError
 
 pub fn validate_response(Operation, Case, Int, Json, json_valid? : Bool) -> Finding

@@ -1,6 +1,6 @@
 name = "bzhangui/moonapi"
 
-version = "0.3.0"
+version = "0.4.0-rc.1"
 
 readme = "README.md"
 
@@ -8,6 +8,6 @@ license = "Apache-2.0"
 
 repository = "https://github.com/bzhangui/moonapi"
 
-description = "Bounded OpenAPI behavior testing, stateful scenarios and failure shrinking in MoonBit."
+description = "OpenAPI test policy, stateful scenarios and failure shrinking in MoonBit, with a Node standards adapter."
 
 preferred_target = "js"

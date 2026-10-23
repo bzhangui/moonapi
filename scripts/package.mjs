@@ -52,6 +52,8 @@ const allowed = [
   "docs/BEHAVIOR_ENGINE.md",
   "docs/REVIEW_CASES.md",
   "docs/OPENAPI_3_0_MATRIX.md",
+  "docs/STANDARD_ENGINE.md",
+  "docs/THIRD_PARTY.md",
   "examples/spec.json",
   "examples/scenario.json",
   "examples/fixture.mjs",

@@ -6,6 +6,12 @@ licensed under Apache-2.0; license retained in licenses/MoonBit-Apache-2.0.txt.
 Node.js is an external runtime, not bundled. OpenAPI is a specification reference.
 No third-party API testing framework implementation was copied.
 Schemathesis is referenced for a documented capability comparison only.
+The optional Node standards adapter uses pinned Swagger Parser (MIT),
+Ajv Draft-04 and ajv-formats (MIT), OpenAPI Enforcer (Apache-2.0), and
+yaml (ISC), with transitive dependencies listed in docs/THIRD_PARTY.md.
+They are installed separately with npm ci; their upstream notices/licenses
+remain in those packages. The dependency-free legacy runtime bundle does not
+include these libraries or the new standards entry point.
 The optional integration script starts a separately obtained PocketBase 0.40.5
 binary (MIT, Copyright 2022-present Gani Georgiev); it is not redistributed.
 Test collection migrations and adapter contracts are original MoonAPI fixtures.

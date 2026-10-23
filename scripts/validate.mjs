@@ -29,6 +29,7 @@ run(process.execPath, [
 run(process.execPath, ["examples/demo.mjs"]);
 run(process.execPath, ["examples/behavior-demo.mjs"]);
 run(process.execPath, ["examples/crud-demo.mjs"]);
+run(process.execPath, ["examples/standard-demo.mjs"]);
 run(moon, ["coverage", "clean"]);
 run(moon, ["test", "--target", "js", "--enable-coverage", "--deny-warn"]);
 run(moon, [

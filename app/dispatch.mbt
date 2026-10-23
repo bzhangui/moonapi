@@ -3,6 +3,38 @@ fn command(input : String) -> Json raise {
   let arguments = @engine.bounded_json(input)
   let action = @engine.text(@engine.field(arguments, "action"))
   match action {
+    "standard-schedule" => {
+      let seed : Int32 = @json.from_json(@engine.field(arguments, "seed"))
+      let limit : Int32 = @json.from_json(@engine.field(arguments, "limit"))
+      return @engine.standard_schedule(
+        @engine.field(arguments, "catalog"),
+        seed,
+        limit,
+      )
+    }
+    "standard-oracle" => {
+      let status : Int32 = @json.from_json(@engine.field(arguments, "status"))
+      return @engine.standard_oracle(
+        status,
+        @engine.field(arguments, "negative") is True,
+        @engine.field(arguments, "contract_valid") is True,
+      )
+    }
+    "standard-verdict" => {
+      let planned : Int32 = @json.from_json(@engine.field(arguments, "planned"))
+      let executed : Int32 = @json.from_json(
+        @engine.field(arguments, "executed"),
+      )
+      let failed : Int32 = @json.from_json(@engine.field(arguments, "failed"))
+      let blocked : Int32 = @json.from_json(@engine.field(arguments, "blocked"))
+      return @engine.standard_verdict(
+        planned,
+        executed,
+        failed,
+        blocked,
+        @engine.field(arguments, "truncated") is True,
+      )
+    }
     "sequence-generate" => {
       let seed : Int32 = @json.from_json(@engine.field(arguments, "seed"))
       let limit : Int32 = @json.from_json(@engine.field(arguments, "limit"))

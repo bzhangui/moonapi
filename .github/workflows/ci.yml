@@ -22,7 +22,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0, Node 24 action runtime
         with:
-          node-version: '22'
+          node-version: "22"
           package-manager-cache: false
       - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
         if: runner.os == 'Windows'
@@ -42,7 +42,10 @@ jobs:
           & $installerPath
           if (-not $?) { throw 'MoonBit installation failed' }
           Add-Content -LiteralPath $env:GITHUB_PATH -Value "$env:USERPROFILE\.moon\bin"
-      - name: Check build test examples and core coverage
+      - name: Install locked standards-adapter dependencies
+        # Exact lockfile, no dependency lifecycle scripts. No global install.
+        run: npm ci --ignore-scripts --no-fund
+      - name: Check build test examples and core coverage (all targets)
         run: node scripts/validate.mjs
       - name: Portable runtime bundle
         run: node scripts/package.mjs

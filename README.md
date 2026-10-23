@@ -1,12 +1,37 @@
 # MoonAPI
 
-以 MoonBit 为主要实现语言的接口自动行为测试引擎。除契约检查外，使用声明式状态模型验证跨步骤业务不变量，并在显式重置隔离环境后，缩减仍能复现同一失败检查的操作序列。**完整 OpenAPI 3.0 JSON 兼容是后续申报目标，目前适配仍不完整，不能称为已全标准支持。**
+以 MoonBit 为主要实现语言的 OpenAPI 驱动接口测试项目：从接口描述生成有效、边界和无效测试，验证请求/响应契约，并以状态依赖与失败序列缩减增强跨步骤业务回归。CRUD 只是接入档之一，不再作为全部核心范围。**完整 OpenAPI 3.0（JSON/YAML）是验收目标，目前仍未全部实现，不应宣称已完整支持。**
 
 [源码](https://github.com/bzhangui/moonapi) · [CI](https://github.com/bzhangui/moonapi/actions) · [验收与测试](docs/QUALITY_REPORT.md) · [使用与限制](docs/OPERATIONS.md)
 
 ## 已实现与用途
 
-本模块版本为 **0.3.0 接入改进版**，包含状态行为与自动 CRUD 计算核心；旧版 0.1.1 不包含这些新增 API。安装版本和独立消费核验见 [发布记录](docs/PUBLICATION.md)。针对接入成本、兼容性及增量价值的反馈，见 [本轮整改](docs/REVIEW_REMEDIATION.md)、[工具对照](docs/COMPARISON.md)、[独立后端证据](docs/INTEGRATION_EVIDENCE.md)；完整标准缺口见 [兼容矩阵](docs/OPENAPI_3_0_MATRIX.md)。
+### 优先核验：OpenAPI 测试生成与契约验证（0.4.0-rc.1 源码）
+
+本轮针对“功能范围偏窄、缺少测试生成和契约验证”的反馈增加独立标准适配入口，不删去文档中旧入口不认识的字段，也不把组件定义能读进来等同于全部语义已执行。
+
+```sh
+npm ci --ignore-scripts
+npm run build
+node bin/moonapi-standard.mjs check examples/standard-spec.json
+node bin/moonapi-standard.mjs plan examples/standard-spec.json
+npm run demo:standard
+# 仅限已授权隔离环境；POST 即使是报价接口也必须明确允许写入。
+node bin/moonapi-standard.mjs run your-openapi.yaml --base http://127.0.0.1:8080 --allow-write
+```
+
+- JSON/YAML 1.2、规范文档结构校验、本地/递归引用；外部文档必须逐个显式提供，不自动读取磁盘或访问网络。
+- 组合及约束：allOf/anyOf/oneOf/not、nullable、字典、数值/长度/集合约束、pattern、已知 format、读写方向；合法组合不因候选生成库限制而被判为非法。
+- 每个操作独立生成有效值和已验证为无效的请求体、必需参数遗漏及边界候选；固定种子、操作公平调度，预算截断和无法生成均不报全通过。
+- path/query/header/cookie 参数及常用复杂样式、JSON/text/表单/默认 multipart/octet-stream 编码；状态范围/default、媒体类型、响应头和方向性 Schema 校验。
+- 显式凭据的 apiKey/Basic/Bearer/OAuth2/OpenID 注入、AND/OR 与作用域声明门禁；不是自动登录或令牌实际权限审计。
+- 报告去敏、默认只读、远端另授权、不跟随重定向、CPU/内存/HTTP/资源预算；MoonBit 决定调度、响应判定和完整性门禁。
+
+[标准入口使用说明](docs/STANDARD_ENGINE.md) 给出 API、凭据、跨文件引用、范围与错误语义。报价/搜索健康对照和注入故障均可运行，不是外部用户生产试点。官方 Petstore 定义只读核验见维护记录，绝不自动测试其写接口。
+
+**未完成：XML 语义、完整 Encoding、Links/Callbacks 执行、TRACE 传输、无损大整数及更广一致性证据等。** 这些会明确阻塞完整性；当前 `full_openapi_support=false`，导入、生成、某次执行通过和完整标准兼容是四件事。下方旧计算核心/CRUD/状态入口仍保留兼容，不能用标准适配层能力替它们做宣传。
+
+本地源码版本为 **0.4.0-rc.1，尚未发布 Mooncakes**；已发布的 0.3.0 包不包含本轮标准入口与新增 policy API。安装版本和独立消费核验见 [发布记录](docs/PUBLICATION.md)。针对接入成本、兼容性及增量价值的反馈，见 [本轮整改](docs/REVIEW_REMEDIATION.md)、[工具对照](docs/COMPARISON.md)、[独立后端证据](docs/INTEGRATION_EVIDENCE.md)；完整标准缺口见 [兼容矩阵](docs/OPENAPI_3_0_MATRIX.md)。
 
 ### 优先使用：免手写模型的资源回归
 
@@ -48,11 +73,12 @@ node bin/moonapi-behavior.mjs plan examples/spec.json --model examples/behavior.
 
 ## 安装和最小样例
 
-需要 [MoonBit](https://www.moonbitlang.com/download/) **moonc ≥ 0.10.15** 和 Node.js ≥ 22。使用官方 2026-10-12 稳定版验证，无 npm 第三方依赖。
+需要 [MoonBit](https://www.moonbitlang.com/download/) **moonc ≥ 0.10.15** 和 Node.js ≥ 22.19.0。本轮使用项目私有 2026-10-12 SDK 验证，不修改全局环境。新标准入口须先 `npm ci --ignore-scripts`，第三方依赖与许可见 [清单](docs/THIRD_PARTY.md)；旧纯 MoonBit 核心无需 npm 依赖。
 
 ```sh
 git clone https://github.com/bzhangui/moonapi.git
 cd moonapi
+npm ci --ignore-scripts
 npm run build
 npm run demo
 node bin/moonapi.mjs plan examples/spec.json
@@ -93,6 +119,6 @@ node scripts/package.mjs
 
 统一维护入口执行四目标检查/构建/测试/样例、HTTP 与故障场景、格式及核心覆盖率。Native 需要系统 C 工具链，不隐式跳过。
 
-只支持明确子集：3.0 JSON、JSON 请求/响应、标量 path/query。不支持 YAML、3.1、远程/递归引用、oneOf/allOf/anyOf、pattern/format、multipart、header/cookie 参数、OAuth 自动登录；不支持的 schema 拒绝，不当作通过。目标由 `--base` 指定，不跟随 servers。
+**旧 `moonapi.mjs`、CRUD 与手写状态入口**仍使用原有有界 MoonBit 解析档（3.0 JSON、JSON 媒体和标量 path/query 等），不支持的约束继续拒绝。新增 `moonapi-standard.mjs` 的能力及缺口单独记录，不混淆入口。所有 HTTP 执行仍需显式 `--base`，不会按文档 servers 自动连接外部主机。3.1/3.2、GraphQL/gRPC 不属于当前 3.0 目标。
 
 预算/故障说明见 [OPERATIONS](docs/OPERATIONS.md)，安全边界见 [SECURITY](SECURITY.md)。采用 [Apache-2.0](LICENSE)，保留 [NOTICE](NOTICE)。原创实现，依据 [OpenAPI 3.0.3](https://spec.openapis.org/oas/v3.0.3.html) 设计，不复制其他测试框架源码。

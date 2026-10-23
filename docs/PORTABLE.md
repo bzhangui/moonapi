@@ -1,3 +1,7 @@
+# 新标准适配入口说明
+
+当前便携包只提供原有契约、状态和 CRUD 三个入口；不包含 `moonapi-standard.mjs` 或 npm 标准依赖，不能代表完整新版功能。使用新标准层应获取同版本 GitHub 源码，先 `npm ci --ignore-scripts`、`npm run build`，参考 [标准入口](STANDARD_ENGINE.md)。不可把本包的旧解析档误认为完整 OpenAPI 支持。
+
 # MoonAPI 本地运行包
 
 需要 Node.js ≥22，不要求 MoonBit。Windows 双击开始使用.cmd，或运行 node bin/moonapi.mjs help / node examples/demo.mjs。
