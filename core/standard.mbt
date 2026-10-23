@@ -1,5 +1,66 @@
 ///|
 /// Portable policy for standards-adapter execution; no shared host RNG.
+/// Runtime-expression syntax is portable; host adapters resolve values without
+/// converting precise HTTP numbers through MoonBit's JSON numeric projection.
+pub fn standard_expression(expression : String) -> Json raise TestError {
+  guard expression.length() <= 8192 else {
+    raise Invalid("runtime expression budget")
+  }
+  for key in ["url", "method", "statusCode"] {
+    if expression == "$" + key {
+      return { "kind": "meta", "key": Json(key) }
+    }
+  }
+  let source = if expression.has_prefix("$request.") {
+    "request"
+  } else if expression.has_prefix("$response.") {
+    "response"
+  } else {
+    raise Invalid("runtime expression source")
+  }
+  let offset = source.length() + 2
+  let suffix = expression[offset:].to_owned()
+  if suffix == "body" || suffix.has_prefix("body#") {
+    let pointer = if suffix == "body" { "" } else { suffix[5:].to_owned() }
+    guard pointer == "" || pointer.has_prefix("/") else {
+      raise Invalid("runtime pointer syntax")
+    }
+    let chars = pointer.to_array()
+    for i = 0; i < chars.length(); i = i + 1 {
+      if chars[i] == '~' {
+        guard i + 1 < chars.length() &&
+          (chars[i + 1] == '0' || chars[i + 1] == '1') else {
+          raise Invalid("runtime pointer escape")
+        }
+      }
+    }
+    return { "source": Json(source), "kind": "body", "pointer": Json(pointer) }
+  }
+  for location in ["header", "query", "path"] {
+    if suffix.has_prefix(location + ".") {
+      let key = suffix[location.length() + 1:].to_owned()
+      if location == "header" {
+        guard key.length() > 0 else { raise Invalid("header token required") }
+        for c in key {
+          guard (c >= 'a' && c <= 'z') ||
+            (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') ||
+            "!#$%&'*+-.^_`|~".contains(c.to_string()) else {
+            raise Invalid("invalid header token")
+          }
+        }
+      }
+      return {
+        "source": Json(source),
+        "kind": Json(location),
+        "key": Json(key),
+      }
+    }
+  }
+  raise Invalid("runtime expression location")
+}
+
+///|
 pub fn standard_schedule(
   catalog : Json,
   seed : Int32,

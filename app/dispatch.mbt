@@ -3,6 +3,10 @@ fn command(input : String) -> Json raise {
   let arguments = @engine.bounded_json(input)
   let action = @engine.text(@engine.field(arguments, "action"))
   match action {
+    "standard-expression" =>
+      return @engine.standard_expression(
+        @engine.text(@engine.field(arguments, "expression")),
+      )
     "standard-schedule" => {
       let seed : Int32 = @json.from_json(@engine.field(arguments, "seed"))
       let limit : Int32 = @json.from_json(@engine.field(arguments, "limit"))

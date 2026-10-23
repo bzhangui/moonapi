@@ -1,4 +1,36 @@
 ///|
+test "runtime expression AST is portable and preserves opaque pointer tokens" {
+  assert_eq(field(standard_expression("$url"), "key"), Json("url"))
+  for source in ["request", "response"] {
+    for
+      location in [
+        "header.X-Id", "query.a.b", "path.id", "body", "body#/a~1b/~0key",
+      ] {
+      let value = standard_expression("$" + source + "." + location)
+      assert_eq(field(value, "source"), Json(source))
+    }
+  }
+  assert_eq(
+    field(standard_expression("$request.body#/a~1b"), "pointer"),
+    Json("/a~1b"),
+  )
+  assert_eq(field(standard_expression("$request.query."), "key"), Json(""))
+  for
+    value in [
+      "$other.body", "$request.headers.a", "$response.body#not-pointer", "$response.body#/bad~2",
+      "$request.header.", "$request.header.a b",
+    ] {
+    let rejected = try {
+      ignore(standard_expression(value))
+      false
+    } catch {
+      _ => true
+    }
+    assert_eq(rejected, true)
+  }
+}
+
+///|
 test "standard scheduler is fair and repeatable" {
   let catalog : Json = [
     { "id": "alpha", "count": 4 },
