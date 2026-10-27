@@ -23,6 +23,6 @@
 
 独立测试向量：`tests/vectors/draft4` 来自 JSON-Schema-Test-Suite，固定提交 `89e83a74014617ffbe79a56d83d14d054cd11417`，保留原样文件及 `tests/vectors/LICENSE`（MIT）。完整原始文件没有删减；执行器明确区分 OpenAPI 3.0 自身没有定义的 JSON Schema 词汇与适用的测试组，不能把更大的 JSON Schema 语言混称为 OpenAPI 3.0。
 
-上游版权和许可证全文由 npm 包的 LICENSE 等文件保留。不将 `node_modules`、上游后端二进制或数据库放进 Git/Mooncakes；也不把第三方能力冒称 MoonBit 原生实现。如果将来重新分发含标准层的独立运行包，必须一并复制这份清单、相应上游版权和许可全文，并核验精确文件集。当前旧便携运行包仍只带原有无 npm 依赖的三个入口，未包含新标准层。
+上游版权和许可证全文由 npm 包的 LICENSE 等文件保留。不将 `node_modules`、上游后端二进制或数据库放进 Git/Mooncakes，也不把第三方能力冒称 MoonBit 原生实现。0.4.0 标准运行包在专用目录锁定安装依赖，保留其全部原始许可/通知文件和本清单，逐文件哈希校验。旧便携包仍仅含原三个入口，不冒称有标准层能力。Schemathesis4.32.5 仅在私有独立虚拟环境用于可选对照，不重新分发；参考工具日志可能含原始数据，不公开。
 
 规范参考：[OpenAPI 3.0.3](https://spec.openapis.org/oas/v3.0.3.html)、[Swagger Parser](https://apidevtools.com/swagger-parser/)、[Ajv](https://ajv.js.org/)、[Enforcer](https://openapi-enforcer.com/api/)。只读下载的 Petstore 定义是官方样例，不是本项目原创后端；探测脚本不保存/分发其文件，也不调用其操作。外部示例导入不是完整一致性认证。

@@ -8,6 +8,8 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { OwnedCrudEngine } from "../platform/owned-crud.mjs";
+import { StandardWorkflow } from "../platform/workflow.mjs";
+import { resourceWorkflow } from "../platform/workflow-templates.mjs";
 import { loadCore, saveReport } from "../platform/runner.mjs";
 import { pocketbaseSpec } from "../examples/pocketbase/spec.mjs";
 const keepFixture = process.argv[4] === "--keep-fixture";
@@ -144,6 +146,28 @@ try {
       }).runCrud(base, collection, field, { allowCleanup: true });
       assert.equal(r.complete, true, JSON.stringify(r));
       assert.equal(r.cleanup_verified, true);
+      const standard = await StandardWorkflow.open(
+        pocketbaseSpec(name, field),
+        { allowWrite: true },
+      );
+      try {
+        const sr = await standard.run(
+          base,
+          resourceWorkflow({
+            create: "create",
+            read: "read",
+            update: "update",
+            remove: "delete",
+            field,
+            initial: `standard-${round}`,
+            changed: `updated-${round}`,
+          }),
+        );
+        assert.equal(sr.passed, true, JSON.stringify(sr));
+        assert.equal(sr.records.length, 6);
+      } finally {
+        await standard.close();
+      }
       const list = await request(collection);
       assert.equal(list.body.totalItems, 1);
       assert.equal(list.body.items[0].id, id);
@@ -155,6 +179,7 @@ try {
         http_requests: r.http_requests,
         cleanup_verified: true,
         sentinel_preserved: true,
+        standard_workflow_steps: 6,
       });
     }
   }

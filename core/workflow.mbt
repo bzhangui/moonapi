@@ -10,6 +10,12 @@ pub fn workflow_check(steps : Json) -> Json raise TestError {
   let seen : Map[String, Bool] = Map([])
   let states : Map[String, Bool] = Map([])
   for step in entries {
+    for key in ["needs", "requires", "effects"] {
+      let value = field(step, key)
+      guard value is Null || (value is Array(items) && items.length() <= 64) else {
+        raise Invalid("workflow metadata array required")
+      }
+    }
     let id = text(field(step, "id"))
     safe_name(id)
     guard !seen.contains(id) else { raise Invalid("duplicate workflow step") }
@@ -89,6 +95,8 @@ pub fn workflow_category(code : String) -> String {
     "transport"
   } else if code == "access_or_rate_limit" || code == "redirect_not_followed" {
     "inconclusive"
+  } else if code.has_prefix("unsupported_") {
+    "unsupported"
   } else if code.contains("budget") || code == "total_deadline" {
     "budget"
   } else if code.has_prefix("business_") ||

@@ -302,6 +302,7 @@ export class StandardEngine {
     if (
       !Array.isArray(operationIds) ||
       !operationIds.length ||
+      new Set(operationIds).size !== operationIds.length ||
       operationIds.some((id) => !known.has(id)) ||
       !Array.isArray(priority) ||
       priority.some((id) => !known.has(id))
@@ -480,7 +481,20 @@ export class StandardEngine {
   // Explicit in-process observation API. Context may contain secrets; it is
   // never part of run()'s public summary or persisted by the engine.
   async execute(base, input, { deadline, expectedStatuses } = {}) {
-    if (expectedStatuses !== undefined && (!Array.isArray(expectedStatuses) || !expectedStatuses.length || expectedStatuses.length>16 || expectedStatuses.some(s=>!Number.isInteger(s)||s<200||s>=500||[401,403,429].includes(s)))) throw new Error("STANDARD_EXPECTED_STATUSES");
+    if (
+      expectedStatuses !== undefined &&
+      (!Array.isArray(expectedStatuses) ||
+        !expectedStatuses.length ||
+        expectedStatuses.length > 16 ||
+        expectedStatuses.some(
+          (s) =>
+            !Number.isInteger(s) ||
+            s < 200 ||
+            s >= 500 ||
+            [401, 403, 429].includes(s),
+        ))
+    )
+      throw new Error("STANDARD_EXPECTED_STATUSES");
     if (
       deadline !== undefined &&
       (!Number.isSafeInteger(deadline) || deadline < 0)
@@ -501,7 +515,13 @@ export class StandardEngine {
     const observed = [];
     const report = await this.#run(
       base,
-      { cases: [test], blockers: [], truncated: false, deadline, expectedStatuses },
+      {
+        cases: [test],
+        blockers: [],
+        truncated: false,
+        deadline,
+        expectedStatuses,
+      },
       observed,
     );
     return {
@@ -689,10 +709,19 @@ export class StandardEngine {
             negative: test.negative,
             contract_valid: contract.valid,
           });
-          if (customPlan?.expectedStatuses && contract.valid && response.status<500 && ![401,403,429].includes(response.status)) {
-            oracle.passed=customPlan.expectedStatuses.includes(response.status);
-            oracle.code=oracle.passed?'':'business_status';
-            oracle.fingerprint=oracle.passed?'':`${response.status}:business_status`;
+          if (
+            customPlan?.expectedStatuses &&
+            contract.valid &&
+            response.status < 500 &&
+            ![401, 403, 429].includes(response.status)
+          ) {
+            oracle.passed = customPlan.expectedStatuses.includes(
+              response.status,
+            );
+            oracle.code = oracle.passed ? "" : "business_status";
+            oracle.fingerprint = oracle.passed
+              ? ""
+              : `${response.status}:business_status`;
           }
           let callbacksValid = true;
           for (const receiver of receivers)
@@ -797,7 +826,7 @@ export class StandardEngine {
             break;
           }
         } catch {
-          const expired=Date.now()>=deadline;
+          const expired = Date.now() >= deadline;
           records.push({
             case_id: test.id,
             operation_id: operation.id,
@@ -808,8 +837,8 @@ export class StandardEngine {
               negative: test.negative,
               contract_valid: false,
             }),
-            ...(expired?{code:'total_deadline'}:{}),
-            category: expired?'budget':"transport",
+            ...(expired ? { code: "total_deadline" } : {}),
+            category: expired ? "budget" : "transport",
           });
         } finally {
           for (const receiver of receivers) await receiver.close();

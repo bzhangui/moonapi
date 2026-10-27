@@ -28,7 +28,8 @@ function refCheck(ref, ids, current) {
   }
   if (
     Object.keys(ref).some((k) => !["from", "expression"].includes(k)) ||
-    typeof ref.from !== 'string' || (!ids.has(ref.from) && ref.from !== current) ||
+    typeof ref.from !== "string" ||
+    (!ids.has(ref.from) && ref.from !== current) ||
     typeof ref.expression !== "string"
   )
     throw new Error("WORKFLOW_REFERENCE");
@@ -49,7 +50,8 @@ export function workflowModel(input, description) {
   const ids = new Set();
   for (const step of model.steps) {
     if (
-      typeof step.id!=='string' || !safe.test(step.id) ||
+      typeof step.id !== "string" ||
+      !safe.test(step.id) ||
       ids.has(step.id) ||
       Object.keys(step).some(
         (k) =>
@@ -81,7 +83,20 @@ export function workflowModel(input, description) {
     )
       throw new Error("WORKFLOW_REQUEST");
     const needs = new Set();
-    if (step.expect !== undefined && (!Array.isArray(step.expect) || !step.expect.length || step.expect.length>16 || step.expect.some(s=>!Number.isInteger(s)||s<200||s>=500||[401,403,429].includes(s)))) throw new Error('WORKFLOW_EXPECT');
+    if (
+      step.expect !== undefined &&
+      (!Array.isArray(step.expect) ||
+        !step.expect.length ||
+        step.expect.length > 16 ||
+        step.expect.some(
+          (s) =>
+            !Number.isInteger(s) ||
+            s < 200 ||
+            s >= 500 ||
+            [401, 403, 429].includes(s),
+        ))
+    )
+      throw new Error("WORKFLOW_EXPECT");
     for (const b of step.bindings || []) {
       if (Object.keys(b).sort().join(",") !== "expression,from,target")
         throw new Error("WORKFLOW_BINDING");
@@ -103,10 +118,12 @@ export function workflowModel(input, description) {
       (step.bindings || []).length > 32
     )
       throw new Error("WORKFLOW_ASSERTION_BUDGET");
-    const assertionIds=new Set();
+    const assertionIds = new Set();
     for (const a of step.assertions || []) {
       if (
-        typeof a.id!=='string' || !safe.test(a.id) || assertionIds.has(a.id) ||
+        typeof a.id !== "string" ||
+        !safe.test(a.id) ||
+        assertionIds.has(a.id) ||
         !allowedAssertions.includes(a.kind) ||
         Object.keys(a).some((k) => !["id", "kind", "left", "right"].includes(k))
       )
@@ -188,6 +205,8 @@ function assertions(step, contexts) {
 export class StandardWorkflow {
   #engine;
   #busy = false;
+  #closed = false;
+  #cancelReset;
   static async open(source, options = {}) {
     const workflow = new StandardWorkflow();
     workflow.#engine = await StandardEngine.open(source, options);
@@ -197,6 +216,8 @@ export class StandardWorkflow {
     return this.#engine.description;
   }
   close() {
+    this.#closed = true;
+    this.#cancelReset?.();
     return this.#engine.close();
   }
   async run(
@@ -210,6 +231,7 @@ export class StandardWorkflow {
       totalTimeout = 60000,
     } = {},
   ) {
+    if (this.#closed) throw new Error("WORKFLOW_CLOSED");
     if (this.#busy) throw new Error("WORKFLOW_BUSY");
     if (
       !Number.isInteger(shrinkBudget) ||
@@ -251,6 +273,8 @@ export class StandardWorkflow {
     const run = async (steps) => {
       const contexts = new Map(),
         records = [];
+      if (this.#closed)
+        return { records, category: "blocked", code: "engine_closed" };
       if (Date.now() >= deadline)
         return { records, category: "budget", code: "total_deadline" };
       if (reset) {
@@ -260,6 +284,10 @@ export class StandardWorkflow {
           const ok = await Promise.race([
             Promise.resolve().then(() => reset(controller.signal)),
             new Promise((_, reject) => {
+              this.#cancelReset = () => {
+                controller.abort();
+                reject(new Error("WORKFLOW_CLOSED"));
+              };
               timer = setTimeout(
                 () => {
                   controller.abort();
@@ -280,9 +308,12 @@ export class StandardWorkflow {
         } finally {
           clearTimeout(timer);
           controller.abort();
+          this.#cancelReset = undefined;
         }
       }
       for (const step of steps) {
+        if (this.#closed)
+          return { records, category: "blocked", code: "engine_closed" };
         if (Date.now() >= deadline)
           return { records, category: "budget", code: "total_deadline" };
         const request = cloneExact(step.request);
@@ -298,7 +329,10 @@ export class StandardWorkflow {
         const count = step.poll?.attempts || 1;
         for (let n = 0; n < count; n++) {
           try {
-            result = await this.#engine.execute(base, request, { deadline, expectedStatuses:step.expect });
+            result = await this.#engine.execute(base, request, {
+              deadline,
+              expectedStatuses: step.expect,
+            });
           } catch {
             return {
               records,
@@ -406,7 +440,11 @@ export class StandardWorkflow {
         shrink_attempts: attempts,
         shrink_confirmed: confirmed,
         unstable,
-        shrink_budget_exhausted: attempts >= shrinkBudget && shrink,
+        shrink_budget_exhausted:
+          initial.category === "defect" &&
+          !unstable &&
+          attempts >= shrinkBudget &&
+          shrink,
         minimality:
           "dependency-preserving local reduction; not globally minimal",
         real_user_validation: false,

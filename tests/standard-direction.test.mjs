@@ -2,11 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { validSchema } from "../platform/standard-schema.mjs";
 import { StandardEngine } from "../platform/standard.mjs";
-test('direction facts never leak from one successful choice into a different required branch',()=>{
-  for(const [mode,flag] of [['write','readOnly'],['read','writeOnly']]) {
-    const s={required:['id'],oneOf:[{properties:{id:{[flag]:true}}},{required:['id']}]};
-    assert.equal(validSchema(s,{},mode),true);
-    assert.equal(validSchema(s,{id:1},mode),true);
+test("direction facts never leak from one successful choice into a different required branch", () => {
+  for (const [mode, flag] of [
+    ["write", "readOnly"],
+    ["read", "writeOnly"],
+  ]) {
+    const s = {
+      required: ["id"],
+      oneOf: [{ properties: { id: { [flag]: true } } }, { required: ["id"] }],
+    };
+    assert.equal(validSchema(s, {}, mode), true);
+    assert.equal(validSchema(s, { id: 1 }, mode), true);
   }
 });
 const composed = (flag, key = "id") => ({

@@ -15,6 +15,10 @@ retain their upstream MIT notice in tests/vectors/LICENSE.
 They are installed separately with npm ci; their upstream notices/licenses
 remain in those packages. The dependency-free legacy runtime bundle does not
 include these libraries or the new standards entry point.
+The separate standards runtime bundle installs these exact locked dependencies
+and retains their original license/notice files inside node_modules.
+Schemathesis is executed only as an optional, separately installed reference
+tool in an isolated comparison environment; it is not redistributed.
 The optional integration script starts a separately obtained PocketBase 0.40.5
 binary (MIT, Copyright 2022-present Gani Georgiev); it is not redistributed.
 Test collection migrations and adapter contracts are original MoonAPI fixtures.

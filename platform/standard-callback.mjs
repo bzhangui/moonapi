@@ -12,7 +12,8 @@ export async function callbackReceiver(handle, timeout = 1000) {
       return;
     }
     if (++hits > 32) {
-      if(hits===33)records.push({ valid: false, code: "callback_request_budget" });
+      if (hits === 33)
+        records.push({ valid: false, code: "callback_request_budget" });
       req.resume();
       res.writeHead(429).end();
       return;

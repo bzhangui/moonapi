@@ -6,7 +6,22 @@
 
 ## 已实现与用途
 
-### 优先核验：OpenAPI 测试生成与契约验证（0.4.0-rc.2 源码）
+### 优先使用：标准状态回归与 CI（0.4.0）
+
+三阶段升级已接入同一标准执行链：精确返回值绑定、跨步骤业务断言、状态前提与依赖保留缩减；提供资源持久化/删除确认、幂等重复请求、库存守恒和异步轮询模板。只读默认；缩减须显式授权隔离重置，不自动重试响应丢失的写请求。
+
+```sh
+npm ci --ignore-scripts
+npm run build
+node examples/workflow-demo.mjs
+node bin/moonapi-ci.mjs discover examples/standard-spec.json
+# 仅已授权测试服务，公开报告去除操作名、URL 与正文。
+node bin/moonapi-ci.mjs run your-spec.yaml --base http://127.0.0.1:8080 --report-prefix .local/ci-run
+```
+
+[标准状态与 CI 指南](docs/WORKFLOW.md) 包含 IR、四类模板、依赖草案、保守契约差异、同文档历史失败优先、私有重放与 JSON/JUnit/静态 HTML。单步观察 API 明确只在内存保留私有上下文；缩减确认和不稳定结果分开，空执行/阻塞/截断不报通过。独立 PocketBase/SQLite 六轮同时验证旧归属档和新标准流程；[参考工具对照](docs/COMPARISON.md) 披露实际测试量与边界，不宣称优于 Schemathesis。
+
+### OpenAPI 测试生成与契约验证
 
 本轮针对“功能范围偏窄、缺少测试生成和契约验证”的反馈增加独立标准适配入口，不删去文档中旧入口不认识的字段，也不把组件定义能读进来等同于全部语义已执行。
 
@@ -33,7 +48,7 @@ node bin/moonapi-standard.mjs run your-openapi.yaml --base http://127.0.0.1:8080
 
 本轮补齐上一版所列的活动功能缺口。标准入口的 `full_openapi_support=true` 是按公开矩阵和测试维护的**能力声明，不是第三方认证，也不是一次采样证明全部业务无误**。`passed/complete` 另由执行数量、错误、授权和预算决定。规范没有定义的嵌套 deepObject、Cookie 歧义、空值等采用公开策略；自定义媒体使用受信任 codec 扩展，不把任意媒体冒当 JSON。Callbacks 不会擅自访问外部接收系统，响应派生/固定地址须由调用方提供可控环境与接收适配，不能自动把其 URL 改为本机地址。见 [标准矩阵](docs/OPENAPI_3_0_MATRIX.md)。
 
-源码版本为 **0.4.0-rc.2，尚未发布 Mooncakes**；已发布的 0.3.0 包不包含本轮标准入口与新增 policy API。安装版本和独立消费核验见 [发布记录](docs/PUBLICATION.md)。反馈整改见 [本轮说明](docs/REVIEW_REMEDIATION.md)、[工具对照](docs/COMPARISON.md)、[独立后端证据](docs/INTEGRATION_EVIDENCE.md)。本轮不发布注册表或桌面运行包。
+源码版本为 **0.4.0**；Mooncakes 提供纯 MoonBit 计算/policy 核心，标准 HTTP 层从同版本源码或标准运行包使用。发布与独立消费状态以 [发布记录](docs/PUBLICATION.md) 为准，不用旧版本证明新 API 已分发。旧便携档保留，标准运行包另含锁定安装的 npm 依赖及完整原许可，不包含 Node/后端二进制。
 
 ### 优先使用：免手写模型的资源回归
 

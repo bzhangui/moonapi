@@ -1,5 +1,11 @@
 # 独立后端接入证据与边界
 
+## 2026-10-27：新旧链路同时核验
+
+实际运行 `scripts/interop-pocketbase.mjs`，同一已核验 PocketBase0.40.5 Windows 二进制与独立 SQLite 合成库。两类集合各三轮；每轮旧 owned CRUD 的6步/9次请求之外，增加 StandardWorkflow 的创建、读回、更新、更新确认、删除、404确认，共36步真实后端调用。每轮只剩既有哨兵，重启不变，不需全局 reset。新链路覆盖 string ID、PATCH、POST200 和组件引用，与整数 ID 合成夹具交叉核验。
+
+本机使用显式 `--keep-fixture`：进程已结束，合成数据库留在忽略目录供复核，**没有宣称文件已清理**。Linux CI 的默认清理模式须按本轮 CI 补证。这仍不是外部用户/生产试点；适配契约由本项目编写，不是 PocketBase 官方完整定义。
+
 ## 2026-10-22：PocketBase 0.40.5 / SQLite
 
 这次直接启动独立开源项目的官方 Windows amd64 二进制，使用其真实 SQLite 持久化、迁移和记录 REST API，非 MoonAPI 自写 HTTP 服务。两类测试集合分别选择 `title`、`name` 字段，使用 string ID、PATCH、POST 200、组件参数/请求/响应/Schema 引用，覆盖与原 integer ID / PUT / POST 201 夹具不同的形状。

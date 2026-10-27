@@ -1,6 +1,6 @@
 # OpenAPI 3.0 标准入口使用说明
 
-源码 0.4.0-rc.2，依据 [OAS 3.0.4](https://spec.openapis.org/oas/v3.0.4.html)。标准入口覆盖完整 3.0 对象模型，不把 CRUD、JSON 媒体或精选 Schema 词汇当作最终范围。能力声明、有限执行覆盖和第三方认证是三件事；本项目没有第三方一致性认证，不保证穷尽任意业务或保证赛事通过。
+源码 0.4.0，依据 [OAS 3.0.4](https://spec.openapis.org/oas/v3.0.4.html)。标准入口覆盖完整 3.0 对象模型，不把 CRUD、JSON 媒体或精选 Schema 词汇当作最终范围。能力声明、有限执行覆盖和第三方认证是三件事；本项目没有第三方一致性认证，不保证穷尽任意业务或保证赛事通过。状态执行已共用标准链路，见 [状态与 CI 指南](WORKFLOW.md)；旧行为入口继续兼容。
 
 ## 安装与命令
 
@@ -23,7 +23,7 @@ check 校验文档/引用/语义，不发 HTTP；plan 生成并独立校验正�
 node bin/moonapi-standard.mjs run private-spec.yaml --base http://127.0.0.1:8080 --allow-write --follow-links --allow-callbacks
 ```
 
-GET/HEAD/OPTIONS 默认可运行，其余方法须 --allow-write；远端另需 --allow-remote。这不意味着 GET 没有业务副作用。TLS 不关闭，不自动跟随重定向、申请令牌、全库重置或重复写入缩减。GET/HEAD/TRACE 不发送正文。复杂业务状态与缩减仍使用行为引擎及其独立许可。
+GET/HEAD/OPTIONS 默认可运行，其余方法须 --allow-write；远端另需 --allow-remote。这不意味着 GET 没有业务副作用。TLS 不关闭，不自动跟随重定向、申请令牌、全库重置或重复写入缩减。GET/HEAD/TRACE 不发送正文。标准状态与缩减通过 StandardWorkflow 和独立重置许可执行；旧行为入口继续兼容。
 
 ## 库与生命周期
 

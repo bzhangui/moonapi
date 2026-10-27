@@ -49,6 +49,8 @@ jobs:
         run: node scripts/validate.mjs
       - name: Portable runtime bundle
         run: node scripts/package.mjs
+      - name: Independent locked-install standard runtime bundle
+        run: node scripts/package-standard.mjs
       - name: Independent PocketBase 0.40.5 SQLite integration (Linux)
         if: runner.os == 'Linux'
         shell: bash

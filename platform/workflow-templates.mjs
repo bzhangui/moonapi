@@ -63,8 +63,22 @@ export function resourceWorkflow({
       },
       readStep("verify", changed),
       ...(remove
-        ? [{ id: "delete", requires:['updated'],effects:['deleted'],request: req(remove), bindings: binding() },
-           {id:'verify_deleted',requires:['deleted'],request:req(read),bindings:binding(),expect:[404,410]}]
+        ? [
+            {
+              id: "delete",
+              requires: ["updated"],
+              effects: ["deleted"],
+              request: req(remove),
+              bindings: binding(),
+            },
+            {
+              id: "verify_deleted",
+              requires: ["deleted"],
+              request: req(read),
+              bindings: binding(),
+              expect: [404, 410],
+            },
+          ]
         : []),
     ],
   };
@@ -200,13 +214,59 @@ export async function discoverDependencies(engine) {
   };
 }
 // Reserve -> cancel -> duplicate cancel must conserve the pre-reservation stock.
-export function inventoryWorkflow({inventory,reserve,cancel,quantity=1,idParameter='id',idPointer='/id',stockPointer='/available'}) {
-  const binding=()=>[bind('reserve','$response.body#'+idPointer,'$request.path.'+idParameter)];
-  return {version:1,steps:[
-    {id:'before',effects:['baseline'],request:req(inventory)},
-    {id:'reserve',requires:['baseline'],effects:['reserved'],request:req(reserve,{quantity})},
-    {id:'cancel_once',requires:['reserved'],effects:['cancelled'],request:req(cancel),bindings:binding()},
-    {id:'cancel_twice',requires:['cancelled'],effects:['duplicate'],request:req(cancel),bindings:binding()},
-    {id:'after',requires:['duplicate'],request:req(inventory),assertions:[{id:'stock_conserved',kind:'equal',left:from('after','$response.body#'+stockPointer),right:from('before','$response.body#'+stockPointer)}]}
-  ]};
+export function inventoryWorkflow({
+  inventory,
+  reserve,
+  cancel,
+  quantity = 1,
+  idParameter = "id",
+  idPointer = "/id",
+  stockPointer = "/available",
+}) {
+  const binding = () => [
+    bind(
+      "reserve",
+      "$response.body#" + idPointer,
+      "$request.path." + idParameter,
+    ),
+  ];
+  return {
+    version: 1,
+    steps: [
+      { id: "before", effects: ["baseline"], request: req(inventory) },
+      {
+        id: "reserve",
+        requires: ["baseline"],
+        effects: ["reserved"],
+        request: req(reserve, { quantity }),
+      },
+      {
+        id: "cancel_once",
+        requires: ["reserved"],
+        effects: ["cancelled"],
+        request: req(cancel),
+        bindings: binding(),
+      },
+      {
+        id: "cancel_twice",
+        requires: ["cancelled"],
+        effects: ["duplicate"],
+        request: req(cancel),
+        bindings: binding(),
+      },
+      {
+        id: "after",
+        requires: ["duplicate"],
+        request: req(inventory),
+        assertions: [
+          {
+            id: "stock_conserved",
+            kind: "equal",
+            left: from("after", "$response.body#" + stockPointer),
+            right: from("before", "$response.body#" + stockPointer),
+          },
+        ],
+      },
+    ],
+  };
 }

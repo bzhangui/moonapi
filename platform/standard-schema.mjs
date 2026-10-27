@@ -14,7 +14,14 @@ addFormats(ajv);
 const formats = new Map();
 // Only annotations on the same instance participate. Do not descend into
 // properties/items/not, or leak annotations from unsuccessful choice branches.
-function directions(rule, value, mode, depth, seen = new Set(), choices = true) {
+function directions(
+  rule,
+  value,
+  mode,
+  depth,
+  seen = new Set(),
+  choices = true,
+) {
   if (!rule || seen.has(rule)) return new Map();
   if (depth > 128) throw new Error("STANDARD_SCHEMA_DEPTH_BUDGET");
   const next = new Set(seen).add(rule),
@@ -31,9 +38,18 @@ function directions(rule, value, mode, depth, seen = new Set(), choices = true) 
     if (annotations(p)) out.set(key, true);
   }
   for (const branch of rule.allOf || [])
-    for (const [key] of directions(branch, value, mode, depth + 1, next, choices))
+    for (const [key] of directions(
+      branch,
+      value,
+      mode,
+      depth + 1,
+      next,
+      choices,
+    ))
       out.set(key, true);
-  for (const branch of choices ? [...(rule.anyOf || []), ...(rule.oneOf || [])] : []) {
+  for (const branch of choices
+    ? [...(rule.anyOf || []), ...(rule.oneOf || [])]
+    : []) {
     if (validSchema(branch, value, mode, depth + 1))
       for (const [key] of directions(branch, value, mode, depth + 1, next))
         out.set(key, true);
@@ -54,7 +70,10 @@ export function validSchema(
     ...inherited,
     ...directions(rule, value, mode, depth, new Set(), false),
   ]);
-  const annotations = new Map([...unconditional,...directions(rule,value,mode,depth)]);
+  const annotations = new Map([
+    ...unconditional,
+    ...directions(rule, value, mode, depth),
+  ]);
   const check = (s, v) => validSchema(s, v, mode, depth + 1);
   const same = (s) => validSchema(s, value, mode, depth + 1, unconditional);
   if (rule.enum && !rule.enum.some((x) => equal(x, value))) return false;
