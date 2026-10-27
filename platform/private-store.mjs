@@ -8,11 +8,28 @@ import {
 } from "node:crypto";
 import { parseExact, stringifyExact } from "./standard-value.mjs";
 export function privateDirectory(folder, { create = false } = {}) {
-  const absolute = path.resolve(folder),
-    parts = absolute
-      .slice(path.parse(absolute).root.length)
-      .split(path.sep)
-      .filter(Boolean);
+  let absolute = path.resolve(folder);
+  // Darwin exposes its system temporary tree through root-owned /var and /tmp
+  // aliases. Accept only these exact OS mappings, never arbitrary user links.
+  if (process.platform === "darwin")
+    for (const [alias, target] of [
+      ["/var", "/private/var"],
+      ["/tmp", "/private/tmp"],
+    ]) {
+      if (absolute === alias || absolute.startsWith(alias + "/")) {
+        const stat = fs.lstatSync(alias);
+        if (stat.isSymbolicLink()) {
+          if (stat.uid !== 0 || fs.realpathSync(alias) !== target)
+            throw new Error("PRIVATE_DIRECTORY_LINK");
+          absolute = target + absolute.slice(alias.length);
+        }
+        break;
+      }
+    }
+  const parts = absolute
+    .slice(path.parse(absolute).root.length)
+    .split(path.sep)
+    .filter(Boolean);
   let current = path.parse(absolute).root;
   for (const part of parts) {
     current = path.join(current, part);

@@ -10,6 +10,8 @@
 
 [首轮CI 40476726560](https://github.com/bzhangui/moonapi/actions/runs/40476726560) 中 Windows 完整流程通过；Linux/macOS 四目标41个核心均通过，但原生策略对照脚本假定无扩展名的产物路径，导致该步失败。已改用官方 `moon run --target native --release --frozen` 解析产物位置，本机七组重新通过；不跳过原生测试、不隐藏失败历史。[当前源码CI](https://github.com/bzhangui/moonapi/actions) 按对应提交记录维护，以实际运行结果为准，不借用0.4的绿线。
 
+[第二轮CI 40477539988](https://github.com/bzhangui/moonapi/actions/runs/40477539988) 原生对照已通过；继续修复Linux总预算分类与macOS系统临时目录别名，保留软链接拒绝回归和全部目标检查。收尾本机完整维护200项Node及所有样例/核心测试通过。最终三平台状态查对应提交的Actions，不以Windows通过冒充跨平台全部通过；运行包与Mooncakes仍不发布。
+
 ## 2026-10-27：0.4.0 已正式发布
 
 用户分别授权 GitHub、Mooncakes 和运行包发布。功能提交 e4c6ebf、dd06c02、b3923bb；跨平台维护95ba4c0、9cb6b0f。源码/标签 `v0.4.0` 指向 `9cb6b0f984adba0a7d20a99f41bb8cdd150331dc`，后续文档补证不改变已发布包。

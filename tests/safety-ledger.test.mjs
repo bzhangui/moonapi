@@ -10,6 +10,7 @@ import {
 } from "../platform/execution-ledger.mjs";
 import {
   atomicPrivate,
+  privateDirectory,
   saveEncryptedWitness,
   loadEncryptedWitness,
 } from "../platform/private-store.mjs";
@@ -21,6 +22,25 @@ import {
 } from "../examples/workflow-fixture.mjs";
 import { resourceWorkflow } from "../platform/workflow-templates.mjs";
 import { publicReport } from "../platform/ci-tools.mjs";
+test("OS temporary aliases normalize to physical storage while nested user links remain forbidden", () => {
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "moonapi-canonical-private-"),
+  );
+  try {
+    assert.equal(privateDirectory(directory), fs.realpathSync(directory));
+    const real = path.join(directory, "real"),
+      link = path.join(directory, "link");
+    fs.mkdirSync(real);
+    fs.symlinkSync(
+      real,
+      link,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    assert.throws(() => privateDirectory(link), /DIRECTORY_LINK/);
+  } finally {
+    fs.rmSync(directory, { recursive: true });
+  }
+});
 test("ledger stops before exceeding its recoverable byte budget, without discarding durable receipts", async () => {
   const directory = fs.mkdtempSync(
     path.join(os.tmpdir(), "moonapi-ledger-budget-"),

@@ -615,9 +615,12 @@ export class StandardEngine {
         performance.now() + this.options.totalTimeout,
         performance.now() + (customPlan?.remainingMs ?? Infinity),
       );
+    const deadlineSignal = AbortSignal.timeout(
+      Math.ceil(Math.max(1, deadline - performance.now())),
+    );
     const budgetSignal = AbortSignal.any([
       this.#httpAbort.signal,
-      AbortSignal.timeout(Math.ceil(Math.max(1, deadline - performance.now()))),
+      deadlineSignal,
     ]);
     const wait = (fn) => within(budgetSignal, fn, "STANDARD_TOTAL_DEADLINE");
     const guard = new Engine("{}", { allowRemote: this.options.allowRemote });
@@ -965,7 +968,10 @@ export class StandardEngine {
         } catch {
           if (["dispatching", "sent", "responded"].includes(phase))
             emit("unknown");
-          const expired = totalSignal?.aborted || performance.now() >= deadline;
+          const expired =
+            deadlineSignal.aborted ||
+            totalSignal?.aborted ||
+            performance.now() >= deadline;
           records.push({
             case_id: test.id,
             operation_id: operation.id,

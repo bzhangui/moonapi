@@ -77,9 +77,12 @@ $("inspect").addEventListener(
     $("inspect").disabled = true;
     notice("正在隔离工作线程中检查文档和生成候选…");
     try {
-      const r = await api("inspect", { source: $("source").value });
+      const requestedSource = $("source").value;
+      const r = await api("inspect", { source: requestedSource });
+      if ($("source").value !== requestedSource)
+        throw new Error("文档在检查期间发生变化，请重新检查");
       operations = r.operations;
-      checkedSource = r.execution_supported ? $("source").value : undefined;
+      checkedSource = r.execution_supported ? requestedSource : undefined;
       $("plan").replaceChildren();
       $("plan-empty").hidden = operations.length > 0;
       $("plan-count").textContent = operations.length;
