@@ -86,14 +86,22 @@ fs.writeFileSync(
 const npmCLI = resolveNpmCLI();
 const installed = spawnSync(
   process.execPath,
-  [npmCLI, "ci", "--omit=dev", "--ignore-scripts", "--no-fund", "--no-audit"],
+  [
+    npmCLI,
+    "ci",
+    "--omit=dev",
+    "--ignore-scripts",
+    "--no-fund",
+    "--no-audit",
+    "--bin-links=false",
+  ],
   { cwd: destination, stdio: "inherit", timeout: 180000, windowsHide: true },
 );
 if (installed.status !== 0)
   throw new Error("Standard runtime locked install failed");
 const bins = path.join(destination, "node_modules/.bin");
 // Generated npm launcher links are unnecessary for direct node entry points.
-if (fs.existsSync(bins)) fs.rmSync(bins, { recursive: true });
+if (fs.existsSync(bins)) throw new Error("Unexpected npm launchers");
 const files = {};
 function inventory(dir, prefix = "") {
   for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
