@@ -64,7 +64,18 @@ export function transportAdapter(adapter) {
   });
 }
 export function environmentCredentials(profiles, environment = process.env) {
-  if (!profiles || typeof profiles !== "object")
+  if (
+    !profiles ||
+    typeof profiles !== "object" ||
+    Array.isArray(profiles) ||
+    Object.keys(profiles).length > 32 ||
+    Object.entries(profiles).some(
+      ([role, name]) =>
+        !/^[A-Za-z0-9_.-]{1,64}$/.test(role) ||
+        typeof name !== "string" ||
+        !/^[A-Z_][A-Z0-9_]{0,127}$/.test(name),
+    )
+  )
     throw new Error("CREDENTIAL_PROFILES");
   return {
     version: 1,

@@ -104,6 +104,10 @@ test("v2 resource states reject stale state assumptions before any request", asy
   }
 });
 test("credential provider resolves each role afresh, with explicit auth denial tests and no automatic write retry", async () => {
+  assert.throws(
+    () => environmentCredentials({ default: "TOKEN=PRIVATE" }),
+    /CREDENTIAL_PROFILES/,
+  );
   const doc = {
     openapi: "3.0.4",
     info: { title: "roles", version: "1" },

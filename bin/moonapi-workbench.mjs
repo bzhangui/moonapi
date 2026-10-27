@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { startWorkbench } from "../platform/workbench-server.mjs";
+import { environmentCredentials } from "../platform/adapters.mjs";
+import { readPrivate } from "../platform/private-store.mjs";
 import {
   workflowFixture,
   workflowSource,
@@ -14,7 +16,9 @@ try {
     if (flags.has(a) || values.has(a)) throw new Error();
     if (["--demo", "--allow-write"].includes(a)) flags.add(a);
     else if (
-      ["--port", "--origin", "--profiles", "--key-env"].includes(a) &&
+      ["--port", "--origin", "--profiles", "--key-env", "--roles"].includes(
+        a,
+      ) &&
       args[i + 1]
     )
       values.set(a, args[++i]);
@@ -32,6 +36,11 @@ try {
     allowedOrigins: values.has("--origin") ? [values.get("--origin")] : [],
     profileDirectory: values.get("--profiles"),
     profileKey: key ? Buffer.from(key, "hex") : undefined,
+    credentialProvider: values.has("--roles")
+      ? environmentCredentials(
+          JSON.parse(readPrivate(values.get("--roles"), 65536)),
+        )
+      : undefined,
     demo: fixture
       ? { source: workflowSource(), base: fixture.base }
       : undefined,

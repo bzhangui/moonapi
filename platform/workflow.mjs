@@ -367,10 +367,18 @@ function reference(ref, contexts) {
     ? ref.value
     : expression(ref.expression, contexts.get(ref.from) || {});
 }
-function assertions(step, contexts) {
+function assertions(step, contexts, deadline) {
   for (const a of step.assertions || []) {
+    if (performance.now() >= deadline)
+      throw new Error("WORKFLOW_ASSERTION_RESOURCE_BUDGET");
     const left = reference(a.left, contexts),
       right = a.right && reference(a.right, contexts);
+    if (
+      ["unique", "sum"].includes(a.kind) &&
+      Array.isArray(left) &&
+      (left.length > 256 || Buffer.byteLength(stringifyExact(left)) > 262144)
+    )
+      throw new Error("WORKFLOW_ASSERTION_RESOURCE_BUDGET");
     const observed =
       a.kind === "exists"
         ? left !== undefined
@@ -678,10 +686,25 @@ export class StandardWorkflow {
             };
           }
           contexts.set(step.id, result.context);
-          outcome = result.record.passed
-            ? assertions(step, contexts)
-            : { passed: false, code: result.record.code };
-          if (outcome.passed || n === count - 1) break;
+          try {
+            outcome = result.record.passed
+              ? assertions(step, contexts, deadline)
+              : { passed: false, code: result.record.code };
+          } catch (error) {
+            outcome = {
+              passed: false,
+              code:
+                error.message === "WORKFLOW_ASSERTION_RESOURCE_BUDGET"
+                  ? "assertion_resource_budget"
+                  : "assertion_policy_blocked",
+            };
+          }
+          if (
+            outcome.passed ||
+            n === count - 1 ||
+            portable("workflow-category", { code: outcome.code }) !== "defect"
+          )
+            break;
           // Poll only a successful read with an unmet business assertion or an
           // explicitly declared pending status. Never retry transport or writes.
           if (

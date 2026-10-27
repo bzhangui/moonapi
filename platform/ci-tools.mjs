@@ -233,6 +233,8 @@ const codes = new Set([
   "business_unique",
   "isolation_release_failed",
   "unknown_write_requires_inspection",
+  "assertion_resource_budget",
+  "assertion_policy_blocked",
   "reset_failed",
   "reset_unconfirmed",
   "binding_missing",

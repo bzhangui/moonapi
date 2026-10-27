@@ -10,6 +10,74 @@ import {
   workflowFixture,
   workflowSource,
 } from "../examples/workflow-fixture.mjs";
+test("unique assertions use exact deep equality and oversized arrays are budgeted, never called SUT defects", async () => {
+  let data = [];
+  const server = http.createServer((req, res) =>
+    res
+      .writeHead(200, { "content-type": "application/json" })
+      .end(JSON.stringify(data)),
+  );
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const source = JSON.stringify({
+    openapi: "3.0.4",
+    info: { title: "assertion budget", version: "1" },
+    paths: {
+      "/values": {
+        get: {
+          operationId: "values",
+          responses: {
+            200: {
+              description: "values",
+              content: {
+                "application/json": { schema: { type: "array", items: {} } },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  const e = await StandardWorkflow.open(source),
+    m = {
+      version: 1,
+      steps: [
+        {
+          id: "values",
+          request: { operation_id: "values", parameters: [], negative: false },
+          assertions: [
+            {
+              id: "distinct",
+              kind: "unique",
+              left: { from: "values", expression: "$response.body" },
+            },
+          ],
+        },
+      ],
+    };
+  try {
+    for (const [values, category] of [
+      [[1, 2, 3], "passed"],
+      [
+        [
+          { a: 1, b: 2 },
+          { b: 2, a: 1 },
+        ],
+        "defect",
+      ],
+      [Array.from({ length: 257 }, (_, i) => i), "budget"],
+    ]) {
+      data = values;
+      const r = await e.run(`http://127.0.0.1:${server.address().port}`, m);
+      assert.equal(r.category, category);
+      assert.equal(r.records.length, 1);
+      assert.equal(r.passed, category === "passed");
+    }
+  } finally {
+    await e.close();
+    server.closeAllConnections();
+    await new Promise((r) => server.close(r));
+  }
+});
 const model = () =>
   ownedResourceWorkflow({
     create: "create",

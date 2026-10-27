@@ -48,10 +48,12 @@ node bin/moonapi-workbench.mjs --demo --allow-write
 
 默认会话不持久保存文档。可选 `--profiles .local/profiles --key-env YOUR_KEY_ENV`，其中环境变量是自行保管的 64 位十六进制密钥；不要把它贴到聊天或提交仓库。最多十份不可覆盖加密快照；没有密钥不启用保存。凭据只通过 CLI 配置的角色环境变量/受信任 provider 注入，不从浏览器任意读取机器环境。浏览器和进程内存不是硬件安全区。
 
+有认证的工作台可以在启动时加 `--roles .local/roles.json`，该私有文件只写例如 `{"default":"MOONAPI_DEFAULT_CREDENTIALS","owner":"MOONAPI_OWNER_CREDENTIALS"}` 的环境变量名称映射；变量内的实际 JSON 凭据格式按 STANDARD_ENGINE 指南。role 至多32个，名称至多64字符。浏览器无法任意指定读取别的机器环境变量。
+
 - 项目配置默认选择没有必需参数的只读操作，避免把猜测的不存在资源 ID 当作业务回归；需要 ID 的流程请显式绑定真实返回值。`--base` 必须显式提供，配置不能授予远端、写入、清理或重置权限。配置文件含业务模型/路径，保存在 `.local`，不要公开。
 - `environmentCredentials({owner:'OWNER_ENV', viewer:'VIEWER_ENV'})` 每请求读取角色凭据；也可提供 `{version:1,resolve({role,operation_id,signal})}` 实现自己的会话刷新。失败不自动重试写入，不把 OAuth 获取流程冒称已实现。
 - Workflow v2 的 `initial_state/requires_state/set_state` 表达资源状态；`planResourceGraph` 与 `runGraphCampaign` 提供固定种子、公平有界转移探索。每个 transition 的 `max_visits` 为 1–8；多轮 campaign 必须明确提供可确认重置。转移覆盖不等于所有路径/业务状态覆盖。
-- 断言新增 gt/gte/lt/lte/sum/unique。精确数值比较与守恒加总使用 MoonBit BigInt，不把 int64/长小数转换成双精度近似。
+- 断言新增 gt/gte/lt/lte/sum/unique。精确数值比较与守恒加总使用 MoonBit BigInt，不把 int64/长小数转换成双精度近似。sum/unique 有256元素及256 KiB输入预算，超限记预算耗尽，不冒充被测接口缺陷；unique 使用与对象键顺序无关的精确深比较。数值系数上限4096位、指数绝对值10000。
 - `concurrentRegisterProbe` 在显式授权的共享整数 register/CAS 参考模型上并发执行最多八次操作，用 MoonBit 有界线性化搜索判断实际历史。它不是任意接口的线性一致性证明。未知请求/契约/权限先检查，失败不自动补偿。
 - 输入缩减仅处理 `shrink_inputs` 显式指定的外生 body/query 字段；不修改断言、返回 ID 绑定或所有权标记。需独立重置许可与最终重放；有 owned cleanup 时禁用输入缩减以保护标记。结果仅是依赖保留的局部缩减，不宣称全局最小。
 - CI 差异支持无损 JSON/YAML 和本地 `$ref` 传递影响；全局策略变更、新组件命名空间、外部文档改变或不确定引用仍选择全套，避免漏测。差异选择只是优化，不替代定期完整回归。
