@@ -19,6 +19,7 @@ for (const target of ["js", "wasm", "wasm-gc", "native"]) {
   run(moon, ["run", "examples/workflow_core", "--target", target]);
 }
 run(process.execPath, ["scripts/build.mjs"]);
+run(process.execPath, ["scripts/policy-parity.mjs"]);
 run(process.execPath, [
   "--test",
   ...fs
@@ -33,6 +34,7 @@ run(process.execPath, ["examples/crud-demo.mjs"]);
 run(process.execPath, ["examples/standard-demo.mjs"]);
 run(process.execPath, ["examples/standard-advanced-demo.mjs"]);
 run(process.execPath, ["examples/workflow-demo.mjs"]);
+run(process.execPath, ["examples/safe-workflow-demo.mjs"]);
 run(moon, ["coverage", "clean"]);
 run(moon, ["test", "--target", "js", "--enable-coverage", "--deny-warn"]);
 run(moon, [

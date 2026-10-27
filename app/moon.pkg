@@ -2,5 +2,3 @@ import {
   "bzhangui/moonapi/core" @engine,
   "moonbitlang/core/json",
 }
-
-supported_targets = "+js"

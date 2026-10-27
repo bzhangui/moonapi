@@ -46,6 +46,11 @@ test("local workbench blocks unauthenticated/CSRF/write escalation, executes own
     const inspect = await post("inspect", { source: workflowSource() });
     assert.equal(inspect.status, 200);
     assert.ok((await inspect.json()).operations.length > 0);
+    const parallel = await Promise.all([
+      post("inspect", { source: workflowSource() }),
+      post("inspect", { source: workflowSource() }),
+    ]);
+    assert.deepEqual(parallel.map((r) => r.status).sort(), [200, 409]);
     assert.equal(
       (
         await post("run", {
@@ -149,6 +154,9 @@ test("project init is offline/private/no-overwrite and run requires explicit bas
     const c = JSON.parse(fs.readFileSync(out));
     assert.equal(c.mode, "contract");
     assert.ok(c.operationIds.includes("health"));
+    assert.ok(
+      !c.operationIds.includes("read") && !c.operationIds.includes("poll"),
+    );
     assert.ok(!c.allowWrite);
     assert.equal(
       spawnSync(process.execPath, [

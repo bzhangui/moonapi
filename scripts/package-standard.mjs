@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { resolveNpmCLI } from "./npm-cli.mjs";
+import { releaseMetadata } from "./release-metadata.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const version = JSON.parse(
   fs.readFileSync(path.join(root, "package.json"), "utf8"),
@@ -26,6 +27,8 @@ const allowed = [
   "docs/WORKFLOW.md",
   "docs/THIRD_PARTY.md",
   "docs/COMPARISON.md",
+  "docs/UPGRADE_0_5.md",
+  "docs/VERSION_POLICY.md",
   "_build/js/release/build/cmd/bridge/bridge.js",
   "platform/input.mjs",
   "platform/runner.mjs",
@@ -46,8 +49,24 @@ const allowed = [
   "platform/workflow.mjs",
   "platform/workflow-templates.mjs",
   "platform/ci-tools.mjs",
+  "platform/private-store.mjs",
+  "platform/confirmed-witness.mjs",
+  "platform/execution-ledger.mjs",
+  "platform/isolation.mjs",
+  "platform/adapters.mjs",
+  "platform/graph.mjs",
+  "platform/concurrency.mjs",
+  "platform/input-shrink.mjs",
+  "platform/definition.mjs",
+  "platform/dialects.mjs",
+  "platform/dialect-worker.mjs",
+  "platform/project-config.mjs",
+  "platform/workbench-server.mjs",
   "bin/moonapi-standard.mjs",
   "bin/moonapi-ci.mjs",
+  "bin/moonapi-project.mjs",
+  "bin/moonapi-workbench.mjs",
+  "bin/moonapi-dialect.mjs",
   "bin/moonapi.mjs",
   "bin/moonapi-behavior.mjs",
   "bin/moonapi-crud.mjs",
@@ -57,6 +76,10 @@ const allowed = [
   "examples/standard-advanced-demo.mjs",
   "examples/workflow-demo.mjs",
   "examples/workflow-fixture.mjs",
+  "examples/safe-workflow-demo.mjs",
+  "workbench/index.html",
+  "workbench/app.js",
+  "workbench/app.css",
 ];
 fs.mkdirSync(destination, { recursive: true });
 for (const rel of allowed) {
@@ -78,6 +101,8 @@ runtimePackage.scripts = {
   "demo:standard": "node examples/standard-demo.mjs",
   "demo:advanced": "node examples/standard-advanced-demo.mjs",
   "demo:workflow": "node examples/workflow-demo.mjs",
+  "demo:safe": "node examples/safe-workflow-demo.mjs",
+  workbench: "node bin/moonapi-workbench.mjs",
 };
 fs.writeFileSync(
   path.join(destination, "package.json"),
@@ -116,6 +141,7 @@ function inventory(dir, prefix = "") {
     else throw new Error("Runtime special file");
   }
 }
+releaseMetadata(destination);
 inventory(destination);
 fs.writeFileSync(
   path.join(destination, "manifest.json"),
@@ -135,6 +161,12 @@ for (const [script, args] of [
   [path.join(destination, "examples/standard-demo.mjs"), []],
   [path.join(destination, "examples/standard-advanced-demo.mjs"), []],
   [path.join(destination, "examples/workflow-demo.mjs"), []],
+  [path.join(destination, "examples/safe-workflow-demo.mjs"), []],
+  [path.join(root, "scripts/smoke-workbench.mjs"), [destination]],
+  [
+    path.join(destination, "bin/moonapi-dialect.mjs"),
+    ["examples/standard-spec.json"],
+  ],
 ]) {
   const r = spawnSync(process.execPath, [script, ...args], {
     cwd: destination,

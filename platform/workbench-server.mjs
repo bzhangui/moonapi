@@ -54,6 +54,7 @@ export async function startWorkbench({
     profileDirectory = privateDirectory(profileDirectory, { create: true });
   }
   const token = randomBytes(32).toString("base64url");
+  let inspecting = false;
   let origin,
     job = { state: "idle" },
     engine,
@@ -121,21 +122,27 @@ export async function startWorkbench({
       }
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       if (url.pathname === "/api/inspect") {
-        const version = parseDefinition(body.source)?.openapi;
-        if (!version?.startsWith("3.0."))
+        if (inspecting) return send(409, { error: "ONE_INSPECTION_AT_A_TIME" });
+        inspecting = true;
+        try {
+          const version = parseDefinition(body.source)?.openapi;
+          if (!version?.startsWith("3.0."))
+            return send(200, {
+              dialect: await inspectDialect(body.source, {
+                documents: body.documents ?? {},
+              }),
+              operations: [],
+              execution_supported: false,
+            });
           return send(200, {
-            dialect: await inspectDialect(body.source, {
+            ...(await inspectProject(body.source, {
               documents: body.documents ?? {},
-            }),
-            operations: [],
-            execution_supported: false,
+            })),
+            execution_supported: true,
           });
-        return send(200, {
-          ...(await inspectProject(body.source, {
-            documents: body.documents ?? {},
-          })),
-          execution_supported: true,
-        });
+        } finally {
+          inspecting = false;
+        }
       }
       if (url.pathname === "/api/cancel") {
         if (job.state === "running") {

@@ -13,9 +13,7 @@ import {
   stringifyExact,
   equal,
   numeric,
-  compare,
   decimal,
-  number,
 } from "./standard-value.mjs";
 import { expression, bindExpression } from "./standard-expression.mjs";
 export function portable(action, args) {
@@ -56,6 +54,23 @@ function checkRequest(request, description, method) {
     )
   )
     throw new Error("WORKFLOW_REQUEST");
+  const seen = new Set();
+  for (const p of request.parameters) {
+    if (
+      !p ||
+      typeof p !== "object" ||
+      Array.isArray(p) ||
+      !["path", "query", "header", "cookie"].includes(p.in) ||
+      typeof p.name !== "string" ||
+      !p.name ||
+      p.name.length > 256 ||
+      !Object.hasOwn(p, "value") ||
+      Object.keys(p).some((k) => !["in", "name", "value"].includes(k)) ||
+      seen.has(p.in + ":" + p.name)
+    )
+      throw new Error("WORKFLOW_PARAMETER");
+    seen.add(p.in + ":" + p.name);
+  }
   return op;
 }
 function checkBindings(bindings, ids) {
@@ -130,6 +145,14 @@ export function workflowModel(input, description) {
   )
     throw new Error("WORKFLOW_MODEL");
   const ids = new Set();
+  if (
+    model.version === 1 &&
+    (model.initial_state !== undefined ||
+      model.steps.some(
+        (s) => s.requires_state !== undefined || s.set_state !== undefined,
+      ))
+  )
+    throw new Error("WORKFLOW_IR_VERSION");
   for (const step of model.steps) {
     if (
       typeof step.id !== "string" ||
@@ -171,6 +194,7 @@ export function workflowModel(input, description) {
     )
       throw new Error("WORKFLOW_REQUEST");
     const needs = new Set();
+    checkRequest(request, description);
     if (step.shrink_inputs !== undefined) {
       if (!Array.isArray(step.shrink_inputs) || step.shrink_inputs.length > 16)
         throw new Error("WORKFLOW_INPUT_SHRINK");
@@ -178,6 +202,21 @@ export function workflowModel(input, description) {
         const ast = portable("standard-expression", { expression: target });
         if (ast.source !== "request" || !["body", "query"].includes(ast.kind))
           throw new Error("WORKFLOW_INPUT_SHRINK");
+        for (const b of step.bindings || []) {
+          const bound = portable("standard-expression", {
+            expression: b.target,
+          });
+          if (
+            bound.source === ast.source &&
+            bound.kind === ast.kind &&
+            (ast.kind === "query"
+              ? bound.key === ast.key
+              : bound.pointer === ast.pointer ||
+                bound.pointer.startsWith(ast.pointer + "/") ||
+                ast.pointer.startsWith(bound.pointer + "/"))
+          )
+            throw new Error("WORKFLOW_INPUT_SHRINK_BOUND_TARGET");
+        }
       }
     }
     if (
@@ -202,7 +241,8 @@ export function workflowModel(input, description) {
       throw new Error("WORKFLOW_ROLE");
     if (
       step.role !== undefined &&
-      (typeof step.role !== "string" || !safe.test(step.role))
+      (typeof step.role !== "string" ||
+        !/^[A-Za-z0-9_.-]{1,64}$/.test(step.role))
     )
       throw new Error("WORKFLOW_ROLE");
     for (const b of step.bindings || []) {
@@ -283,6 +323,7 @@ export function workflowModel(input, description) {
       steps: metadata(model.steps),
     });
   if (model.cleanup) {
+    const cleanupIds = new Set();
     if (!Array.isArray(model.cleanup) || model.cleanup.length > 16)
       throw new Error("WORKFLOW_CLEANUP");
     for (const s of model.cleanup) {
@@ -291,18 +332,20 @@ export function workflowModel(input, description) {
         typeof s.id !== "string" ||
         !safe.test(s.id) ||
         ids.has(s.id) ||
+        cleanupIds.has(s.id) ||
         Object.keys(s).some(
           (k) =>
             !["id", "request", "bindings", "ownership", "role"].includes(k),
         ) ||
         (s.role !== undefined &&
-          (typeof s.role !== "string" || !safe.test(s.role)))
+          (typeof s.role !== "string" ||
+            !/^[A-Za-z0-9_.-]{1,64}$/.test(s.role)))
       )
         throw new Error("WORKFLOW_CLEANUP");
       checkRequest(s.request, description, "DELETE");
       checkBindings(s.bindings || [], ids);
       checkOwnership(s.ownership, description, ids);
-      ids.add(s.id);
+      cleanupIds.add(s.id);
     }
   }
   return model;

@@ -79,6 +79,23 @@ test("malformed cleanup and ownership bindings are rejected before any reset or 
       (m) => {
         m.steps[2].ownership.bindings[0].target = "$response.body#/id";
       },
+      (m) => {
+        m.steps[2].bindings.push({
+          from: "create",
+          expression: "$response.body#/id",
+          target: "$request.body#/server_id",
+        });
+        m.steps[2].shrink_inputs = ["$request.body#/server_id"];
+      },
+      (m) => {
+        m.initial_state = { x: "missing" };
+      },
+      (m) => {
+        m.steps[0].role = "x".repeat(70);
+      },
+      (m) => {
+        m.cleanup[0].request.parameters = [{ in: "path", name: "id" }];
+      },
     ]) {
       const m = model();
       mutation(m);

@@ -1,0 +1,6 @@
+import {
+  "bzhangui/moonapi/app",
+  "moonbitlang/core/env",
+}
+
+pkgtype(kind: "executable")

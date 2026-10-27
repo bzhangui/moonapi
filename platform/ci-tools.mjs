@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { parseExact, stringifyExact } from "./standard-value.mjs";
 import { atomicPrivate, readPrivate } from "./private-store.mjs";
@@ -52,7 +51,14 @@ export function contractDiff(
       Object.fromEntries(
         Object.entries(d).filter(([k]) => !["paths", "components"].includes(k)),
       );
-  let uncertain = false;
+  let uncertain = [before, after].some((d) =>
+    Object.values(d.paths).some((item) => item?.$ref !== undefined),
+  );
+  const hasDiscriminator = (value) =>
+    value &&
+    typeof value === "object" &&
+    (Object.hasOwn(value, "discriminator") ||
+      Object.values(value).some(hasDiscriminator));
   const closure = (item, document) => {
     const refs = new Map(),
       seen = new Set();
@@ -89,6 +95,12 @@ export function contractDiff(
   const global =
     uncertain ||
     !before.components !== !after.components ||
+    canonicalDefinition(before.components?.securitySchemes ?? {}) !==
+      canonicalDefinition(after.components?.securitySchemes ?? {}) ||
+    ((hasDiscriminator(before.components) ||
+      hasDiscriminator(after.components)) &&
+      canonicalDefinition(before.components) !==
+        canonicalDefinition(after.components)) ||
     canonicalDefinition(strip(before)) !== canonicalDefinition(strip(after)) ||
     documentDigest("", beforeDocuments) !== documentDigest("", afterDocuments);
   const affected = b

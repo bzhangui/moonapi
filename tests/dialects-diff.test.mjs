@@ -86,4 +86,15 @@ test("lossless YAML contract diff follows transitive local refs and ignores key 
     contractDiff(d, Object.fromEntries(Object.entries(d).reverse())).affected,
     [],
   );
+  const auth = structuredClone(d);
+  auth.components.securitySchemes = {
+    token: { type: "http", scheme: "bearer" },
+  };
+  const changed = structuredClone(auth);
+  changed.components.securitySchemes.token.scheme = "basic";
+  assert.equal(contractDiff(auth, changed).full_suite_required, true);
+  const indirect = structuredClone(d);
+  indirect.paths["/indirect"] = { $ref: "#/x-item" };
+  indirect["x-item"] = { get: { operationId: "indirect" } };
+  assert.equal(contractDiff(indirect, indirect).full_suite_required, true);
 });

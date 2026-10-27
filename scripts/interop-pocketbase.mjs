@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { OwnedCrudEngine } from "../platform/owned-crud.mjs";
 import { StandardWorkflow } from "../platform/workflow.mjs";
-import { resourceWorkflow } from "../platform/workflow-templates.mjs";
+import { ownedResourceWorkflow } from "../platform/workflow-templates.mjs";
 import { loadCore, saveReport } from "../platform/runner.mjs";
 import { pocketbaseSpec } from "../examples/pocketbase/spec.mjs";
 const keepFixture = process.argv[4] === "--keep-fixture";
@@ -153,7 +153,7 @@ try {
       try {
         const sr = await standard.run(
           base,
-          resourceWorkflow({
+          ownedResourceWorkflow({
             create: "create",
             read: "read",
             update: "update",
@@ -162,9 +162,12 @@ try {
             initial: `standard-${round}`,
             changed: `updated-${round}`,
           }),
+          { allowCleanup: true },
         );
         assert.equal(sr.passed, true, JSON.stringify(sr));
         assert.equal(sr.records.length, 6);
+        assert.equal(sr.cleanup_verified, true);
+        assert.equal(sr.execution.unknown_writes, 0);
       } finally {
         await standard.close();
       }

@@ -185,7 +185,17 @@ async function poll() {
           idle: "尚未运行",
         }[j.state] ?? j.state;
       if (j.state !== "running") {
-        if (j.report) render(j.report);
+        if (j.report) {
+          render(j.report);
+          notice(
+            j.report.passed
+              ? "验证完成：所选范围通过，详情见下方脱敏摘要。"
+              : "验证结束：存在失败或未完成项，请检查逐项分类。",
+            !j.report.passed,
+          );
+        }
+        if (j.state === "cancelled")
+          notice("后续执行已停止。已发送写入需在接收端核实，不能假定已回滚。");
         if (j.error)
           notice(
             "执行未完成。正文与凭据已隐藏；请检查授权、模型和目标可用性。",
