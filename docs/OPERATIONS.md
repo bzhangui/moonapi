@@ -1,6 +1,6 @@
 # 新标准入口与旧计算档的区别
 
-`moonapi-standard.mjs` 使用新 JSON/YAML 标准适配，需要 Node >=22.19.0 和 `npm ci --ignore-scripts`；参见 [指南](STANDARD_ENGINE.md)。本文件下方原有参数、状态/CRUD、单请求缩减预算仍属于旧入口，不会自动变成新标准入口的功能。完整标准目标尚未达成，所有未执行/截断/不支持的语义均不能当作通过。
+`moonapi-standard.mjs` 使用 JSON/YAML 标准适配；源码安装需要 Node >=22.19.0 和 `npm ci --ignore-scripts`，已发布标准运行包不需 SDK。参见 [标准指南](STANDARD_ENGINE.md) 与 [统一状态/CI](WORKFLOW.md)。下方旧参数、状态/CRUD 和单请求缩减预算仍属于旧入口，不自动成为标准入口能力；旧解析档不支持完整标准，所有未执行/截断/阻塞均不能当通过。
 
 # 操作、格式与故障
 

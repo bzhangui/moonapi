@@ -1,10 +1,22 @@
 # 发布与复现记录
 
-## 2026-10-27：0.4.0 三阶段升级（发布验收中）
+## 2026-10-27：0.4.0 已正式发布
 
-用户已明确分别授权 GitHub 推送、Mooncakes0.4.0 和标准运行包发布。33核心×四目标、165 Node 全量回归及包/隐私检查已通过；新标准运行包使用独立锁定安装，旧33文件运行包继续保留。源码修复、状态/policy、CI/交付按真实功能提交，不制造凑数提交。
+用户分别授权 GitHub、Mooncakes 和运行包发布。功能提交 e4c6ebf、dd06c02、b3923bb；跨平台维护95ba4c0、9cb6b0f。源码/标签 `v0.4.0` 指向 `9cb6b0f984adba0a7d20a99f41bb8cdd150331dc`，后续文档补证不改变已发布包。
 
-Mooncakes预检返回明确202 Accepted / No changes were made，不是正式发布；后续须记录真正200、匿名清单、ZIP校验和及四目标独立下载消费。GitHub源码CI、标准运行包与Mooncakes计算核心分别验证，不相互替代。私人申报书/备份、凭据、SDK、数据库、后端、参考工具环境及原始报告不公开。最终发布结果将追加于本节，不借用历史绿线。
+正式 `moon publish --frozen` 返回 **200 OK、退出0**，不是预检202。[匿名0.4.0清单](https://mooncakes.io/api/v0/manifest/bzhangui/moonapi@0.4.0) 已确认 build_status=success、yanked=false、latest_version=0.4.0、Apache-2.0。上传ZIP共161项，实际文件与 metadata.checksum SHA256一致：`dbb193f2f8157656c78bf4e3dadb873d11e46e9311baf404450e1e0481caec3a`。
+
+独立空目录实际从 Mooncakes 下载0.4.0，不引用仓库源码。四目标 check/release build、四类可执行消费者（含新 workflow policy）及每目标2个公开API回归全部通过。安装 `moon add bzhangui/moonapi@0.4.0`；复核 `node scripts/verify-registry.mjs 0.4.0`。注册表是计算/policy核心，不冒称四目标 HTTP 客户端。
+
+[三平台 CI 40453488797](https://github.com/bzhangui/moonapi/actions/runs/40453488797) Windows/macOS/Ubuntu全部成功：33核心×四目标、166 Node、示例、旧运行包与独立锁定安装标准包。CI stable moonc0.10.17；Linux另外通过 PocketBase0.40.5/SQLite新旧链路六轮、哨兵/重启及临时进程与数据清理。不是外部真实用户试点。
+
+[GitHub Release v0.4.0](https://github.com/bzhangui/moonapi/releases/tag/v0.4.0) 已公开，首选标准包（1297清单文件，含锁定依赖与原许可证）：
+
+- `moonapi-standard-0.4.0-node.zip`，2358588字节，SHA256 `6fb6d66368bdbe1c9431b826cf8b662021d51d6ac5fd33a0ba3b5c59d95eab49`。
+- `moonapi-legacy-0.4.0-node.zip`，150861字节，SHA256 `89606b52c68e66ca25523ac8cb033f0367db1853f0c4c6e9e8af4310bc87fb01`；仅旧33文件入口。
+- 同发布提供 SHA256SUMS。重新从GitHub下载，两份ZIP校验和与资产digest一致；标准包实际解压后逐文件验证、健康/故障状态示例通过，无需SDK。哈希不是数字签名，Node/后端/参考工具不内置。
+
+私人申报书与备份、凭据、SDK、合成库、原始报告、参考工具环境均不公开。前两轮CI失败及修复原因没有隐藏：先修Unix npm定位/重置超时分类，再关闭嵌套npm启动器链接，保留严格无链接交付校验；以上最新成功运行是补证依据，不用旧绿线替代。
 
 ## 2026-10-23：0.4.0-rc.2 源码维护，未发布注册表
 

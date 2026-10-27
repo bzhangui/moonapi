@@ -123,9 +123,9 @@ CLI 输入必须是有效 UTF-8（可带 BOM），描述和模型/场景分别�
 
 ## MoonBit 核心与维护
 
-核心安装入口：[Mooncakes](https://mooncakes.io/docs/bzhangui/moonapi)，0.3.0 安装命令为 `moon add bzhangui/moonapi@0.3.0`。实际发布状态、安装与独立四目标验证见 [发布记录](docs/PUBLICATION.md)；完整执行仍需下面说明的 Node 适配环境。
+核心安装入口：[Mooncakes](https://mooncakes.io/docs/bzhangui/moonapi)，当前正式版安装：`moon add bzhangui/moonapi@0.4.0`。标准 Node 运行包从 [v0.4.0 Release](https://github.com/bzhangui/moonapi/releases/tag/v0.4.0) 下载。发布、校验和及独立四目标消费证据见 [发布记录](docs/PUBLICATION.md)。
 
-`bzhangui/moonapi/core` 支持 JS/Wasm/Wasm-GC/Native，提供 `parse_openapi`、`plan`、`validate_response`、`scenario_case`、`capture_values`、`shrink_candidates`。0.3.0 还提供 validate_sequence、generate_sequence、model_assertions、model_preconditions、model_effects、sequence_candidates、crud_plan，见 examples/behavior_core 和 examples/crud_core。核心不做网络 I/O；完整 HTTP 执行用同版本 GitHub/运行包中的 Node/JS 适配，不是 moon add 后即可获得的四目标网络客户端。发布状态见 [验收记录](docs/ACCEPTANCE.md)。
+`bzhangui/moonapi/core` 支持 JS/Wasm/Wasm-GC/Native，保留原解析、生成、判定、行为和 CRUD API。0.4.0 新增 standard_expression/schedule/oracle/verdict、workflow_check/remove/assert/category，见 examples/workflow_core。核心不做网络 I/O；标准 HTTP 执行用同版本 GitHub/运行包中的 Node 适配，不是 moon add 后即可获得的四目标网络客户端。发布状态见 [验收记录](docs/ACCEPTANCE.md)。
 
 ```sh
 moon run examples/core --target wasm
