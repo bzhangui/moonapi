@@ -12,11 +12,36 @@ import {
 const ajv = new AjvDraft4({ strict: false, logger: false });
 addFormats(ajv);
 const formats = new Map();
-export function validSchema(rule, value, mode = "write", depth = 0) {
+// Only annotations on the same instance participate. Do not descend into
+// properties/items/not, or leak annotations from unsuccessful choice branches.
+function directions(rule, value, mode, depth, seen = new Set()) {
+  if (!rule || seen.has(rule)) return new Map();
+  if (depth > 128) throw new Error("STANDARD_SCHEMA_DEPTH_BUDGET");
+  const next = new Set(seen).add(rule), out = new Map();
+  for (const [key, p] of Object.entries(rule.properties || {})) {
+    const annotations = (s, visited = new Set()) => {
+      if (!s || visited.has(s)) return false;
+      visited.add(s);
+      return !!(mode === "write" ? s.readOnly : s.writeOnly) ||
+        (s.allOf || []).some(x => annotations(x, visited));
+    };
+    if (annotations(p)) out.set(key, true);
+  }
+  for (const branch of rule.allOf || [])
+    for (const [key] of directions(branch, value, mode, depth + 1, next)) out.set(key, true);
+  for (const branch of [...(rule.anyOf || []), ...(rule.oneOf || [])]) {
+    if (validSchema(branch, value, mode, depth + 1))
+      for (const [key] of directions(branch, value, mode, depth + 1, next)) out.set(key, true);
+  }
+  return out;
+}
+export function validSchema(rule, value, mode = "write", depth = 0, inherited = new Map()) {
   if (value === undefined) return false;
   if (!rule || typeof rule !== "object") return true;
   if (depth > 128) throw new Error("STANDARD_SCHEMA_DEPTH_BUDGET");
+  const annotations = new Map([...inherited, ...directions(rule, value, mode, depth)]);
   const check = (s, v) => validSchema(s, v, mode, depth + 1);
+  const same = (s) => validSchema(s, value, mode, depth + 1, annotations);
   if (rule.enum && !rule.enum.some((x) => equal(x, value))) return false;
   const t =
     value === null
@@ -34,9 +59,9 @@ export function validSchema(rule, value, mode = "write", depth = 0) {
       : rule.type === t)
   )
     return false;
-  if (rule.allOf && !rule.allOf.every((s) => check(s, value))) return false;
-  if (rule.anyOf && !rule.anyOf.some((s) => check(s, value))) return false;
-  if (rule.oneOf && rule.oneOf.filter((s) => check(s, value)).length !== 1)
+  if (rule.allOf && !rule.allOf.every(same)) return false;
+  if (rule.anyOf && !rule.anyOf.some(same)) return false;
+  if (rule.oneOf && rule.oneOf.filter(same).length !== 1)
     return false;
   if (rule.not && check(rule.not, value)) return false;
   if (t === "number") {
@@ -140,15 +165,11 @@ export function validSchema(rule, value, mode = "write", depth = 0) {
     )
       return false;
     for (const k of rule.required || []) {
-      const p = Object.hasOwn(props, k) ? props[k] : undefined;
-      if (
-        (mode === "write" && p?.readOnly) ||
-        (mode === "read" && p?.writeOnly)
-      )
-        continue;
+      if (annotations.has(k)) continue;
       if (!Object.hasOwn(value, k)) return false;
     }
     for (const k of keys) {
+      if (annotations.has(k)) return false;
       if (Object.hasOwn(props, k)) {
         const p = props[k];
         if (
