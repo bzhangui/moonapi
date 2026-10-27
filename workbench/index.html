@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh-CN" data-color-mode="light" data-light-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>MoonAPI · 本机工作台</title>
+    <link rel="stylesheet" href="/assets/tokens/primitives.css" />
+    <link rel="stylesheet" href="/assets/tokens/functional/themes/light.css" />
+    <link rel="stylesheet" href="/assets/primer.css" />
+    <link rel="stylesheet" href="/app.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">MoonAPI <span>WORKBENCH</span></a>
+      <div>
+        <span class="Label" id="version">连接中</span
+        ><span class="local-dot">仅本机</span>
+      </div>
+    </header>
+    <main>
+      <div class="intro">
+        <div>
+          <p class="eyebrow">接口行为验证 / LOCAL SESSION</p>
+          <h1>从接口描述，到可核实的结果。</h1>
+          <p class="muted">先检查契约和执行范围，再向你授权的环境发送请求。</p>
+        </div>
+        <span class="Label Label--attention" id="environment">会话模式</span>
+      </div>
+      <div id="notice" class="flash" role="status" aria-live="polite">
+        正在建立本机会话…
+      </div>
+      <div class="workspace">
+        <section class="Box input-panel" aria-labelledby="setup-title">
+          <div class="Box-header">
+            <h2 id="setup-title" class="Box-title">01 / 定义与范围</h2>
+          </div>
+          <div class="Box-body">
+            <label class="field-title" for="source"
+              >OpenAPI 文档
+              <span class="muted">JSON / YAML · ≤ 1 MiB</span></label
+            ><textarea
+              id="source"
+              class="form-control source"
+              spellcheck="false"
+              placeholder="粘贴 OpenAPI 3.0 文档，或从本机导入文件"
+            ></textarea>
+            <div class="row spaced">
+              <label class="btn file-label" for="import">导入文档</label
+              ><input
+                id="import"
+                type="file"
+                accept=".json,.yaml,.yml"
+                class="sr-only"
+              /><button id="inspect" class="btn btn-primary" type="button">
+                检查并生成计划
+              </button>
+            </div>
+            <label class="field-title" for="base">目标环境</label
+            ><input
+              id="base"
+              class="form-control full"
+              placeholder="http://127.0.0.1:8080"
+            />
+            <p class="note">
+              目标地址必须显式指定。禁止重定向和自动重试未知写入。
+            </p>
+            <div class="two-fields">
+              <div>
+                <label class="field-title" for="mode">验证方式</label
+                ><select id="mode" class="form-select full">
+                  <option value="contract">生成用例 / 契约验证</option>
+                  <option value="owned">自有资源 / 持久化回归</option>
+                  <option value="workflow">显式行为模型</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-title" for="seed">可复现种子</label
+                ><input
+                  id="seed"
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  value="42"
+                  class="form-control full"
+                />
+              </div>
+            </div>
+            <div id="owned" class="mode-panel" hidden>
+              <p class="note">
+                每次运行生成唯一标记，仅修改、删除标记仍匹配的资源。不会全库重置。
+              </p>
+              <div class="two-fields" id="resource-selects"></div>
+            </div>
+            <div id="workflow" class="mode-panel" hidden>
+              <label class="field-title" for="model">Workflow IR v1 / v2</label
+              ><textarea
+                id="model"
+                class="form-control source"
+                spellcheck="false"
+                placeholder='{"version":1,"steps":[…]}'
+              ></textarea>
+              <p class="note">
+                界面不加载任意 JavaScript，不执行全局重置或自动缩减。
+              </p>
+            </div>
+            <fieldset class="permissions">
+              <legend>本次运行授权</legend>
+              <label
+                ><input type="checkbox" id="writes" disabled />
+                允许本次写入（需启动时另行授权）</label
+              ><label
+                ><input type="checkbox" id="cleanup" />
+                允许校验标记后清理本次自有资源</label
+              >
+            </fieldset>
+            <div class="row">
+              <button id="run" class="btn btn-primary" disabled type="button">
+                运行验证</button
+              ><button id="cancel" class="btn" disabled type="button">
+                停止后续执行
+              </button>
+            </div>
+            <details class="profiles">
+              <summary>私有配置快照</summary>
+              <p id="storage" class="note">
+                默认仅内存；关闭页面不保存文档、模型或凭据。
+              </p>
+              <div class="row">
+                <button id="save" class="btn btn-sm" type="button" disabled>
+                  加密保存</button
+                ><input
+                  id="profile-id"
+                  class="form-control input-sm"
+                  aria-label="私有配置 ID"
+                  placeholder="配置 ID"
+                /><button id="load" class="btn btn-sm" type="button" disabled>
+                  加载
+                </button>
+              </div>
+            </details>
+          </div>
+        </section>
+        <div class="results-column">
+          <section class="Box">
+            <div class="Box-header row spaced">
+              <h2 class="Box-title">02 / 执行计划</h2>
+              <span id="plan-count" class="Counter">0</span>
+            </div>
+            <div class="Box-body">
+              <p id="plan-empty" class="empty">
+                导入文档并完成检查后，选择需要验证的接口。默认只选只读操作。
+              </p>
+              <div id="plan" class="operation-list"></div>
+              <p id="plan-summary" class="note"></p>
+            </div>
+          </section>
+          <section class="Box">
+            <div class="Box-header row spaced">
+              <h2 class="Box-title">03 / 验证结果</h2>
+              <span id="state" class="Label">尚未运行</span>
+            </div>
+            <div class="Box-body">
+              <div class="metrics">
+                <div>
+                  <strong id="executed">—</strong><span>已观察用例</span>
+                </div>
+                <div><strong id="sent">—</strong><span>已发送请求</span></div>
+                <div>
+                  <strong id="unknown">—</strong><span>未知写入结果</span>
+                </div>
+              </div>
+              <p id="result-description" class="empty">
+                结果会区分缺陷、阻断、不确定和预算耗尽，不将未执行视为通过。
+              </p>
+              <div class="table-scroll">
+                <table class="result-table">
+                  <thead>
+                    <tr>
+                      <th>用例</th>
+                      <th>状态</th>
+                      <th>分类</th>
+                      <th>判定</th>
+                    </tr>
+                  </thead>
+                  <tbody id="records"></tbody>
+                </table>
+              </div>
+              <button id="download" class="btn btn-sm" type="button" disabled>
+                下载脱敏摘要
+              </button>
+              <p class="note">
+                响应正文、令牌和原始接口名称不进入公开摘要。取消执行不能撤销已发生的远端副作用。
+              </p>
+            </div>
+          </section>
+          <aside class="safety-note">
+            <h3>证据边界</h3>
+            <p>
+              演示是合成环境，不是真实用户试点。OpenAPI 3.1 / 3.2
+              仅提供独立结构检查，执行仍保持禁用。核心测试、跨平台结果与生产证明分开记录。
+            </p>
+          </aside>
+        </div>
+      </div>
+    </main>
+    <footer>
+      MoonAPI · Apache-2.0 <span>无云端上传 · 关闭服务即撤销会话</span>
+    </footer>
+  </body>
+</html>

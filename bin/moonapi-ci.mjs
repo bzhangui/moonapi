@@ -66,7 +66,7 @@ try {
     try {
       console.log(
         JSON.stringify(
-          contractDiff(parseExact(before), parseExact(source), {
+          contractDiff(before, source, {
             beforeDocuments: values.has("--before-references")
               ? parseExact(
                   readTextInput(values.get("--before-references"), 1048576),
