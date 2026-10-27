@@ -57,6 +57,14 @@ pub fn validate_sequence(Json) -> Unit raise TestError
 
 pub fn validate_value(Json, Json, pointer? : String) -> Array[Issue]
 
+pub fn workflow_assert(String, Bool) -> Json raise TestError
+
+pub fn workflow_category(String) -> String
+
+pub fn workflow_check(Json) -> Json raise TestError
+
+pub fn workflow_remove(Json, String) -> Json raise TestError
+
 // Errors
 pub(all) suberror TestError {
   Invalid(String)

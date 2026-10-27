@@ -14,34 +14,49 @@ addFormats(ajv);
 const formats = new Map();
 // Only annotations on the same instance participate. Do not descend into
 // properties/items/not, or leak annotations from unsuccessful choice branches.
-function directions(rule, value, mode, depth, seen = new Set()) {
+function directions(rule, value, mode, depth, seen = new Set(), choices = true) {
   if (!rule || seen.has(rule)) return new Map();
   if (depth > 128) throw new Error("STANDARD_SCHEMA_DEPTH_BUDGET");
-  const next = new Set(seen).add(rule), out = new Map();
+  const next = new Set(seen).add(rule),
+    out = new Map();
   for (const [key, p] of Object.entries(rule.properties || {})) {
     const annotations = (s, visited = new Set()) => {
       if (!s || visited.has(s)) return false;
       visited.add(s);
-      return !!(mode === "write" ? s.readOnly : s.writeOnly) ||
-        (s.allOf || []).some(x => annotations(x, visited));
+      return (
+        !!(mode === "write" ? s.readOnly : s.writeOnly) ||
+        (s.allOf || []).some((x) => annotations(x, visited))
+      );
     };
     if (annotations(p)) out.set(key, true);
   }
   for (const branch of rule.allOf || [])
-    for (const [key] of directions(branch, value, mode, depth + 1, next)) out.set(key, true);
-  for (const branch of [...(rule.anyOf || []), ...(rule.oneOf || [])]) {
+    for (const [key] of directions(branch, value, mode, depth + 1, next, choices))
+      out.set(key, true);
+  for (const branch of choices ? [...(rule.anyOf || []), ...(rule.oneOf || [])] : []) {
     if (validSchema(branch, value, mode, depth + 1))
-      for (const [key] of directions(branch, value, mode, depth + 1, next)) out.set(key, true);
+      for (const [key] of directions(branch, value, mode, depth + 1, next))
+        out.set(key, true);
   }
   return out;
 }
-export function validSchema(rule, value, mode = "write", depth = 0, inherited = new Map()) {
+export function validSchema(
+  rule,
+  value,
+  mode = "write",
+  depth = 0,
+  inherited = new Map(),
+) {
   if (value === undefined) return false;
   if (!rule || typeof rule !== "object") return true;
   if (depth > 128) throw new Error("STANDARD_SCHEMA_DEPTH_BUDGET");
-  const annotations = new Map([...inherited, ...directions(rule, value, mode, depth)]);
+  const unconditional = new Map([
+    ...inherited,
+    ...directions(rule, value, mode, depth, new Set(), false),
+  ]);
+  const annotations = new Map([...unconditional,...directions(rule,value,mode,depth)]);
   const check = (s, v) => validSchema(s, v, mode, depth + 1);
-  const same = (s) => validSchema(s, value, mode, depth + 1, annotations);
+  const same = (s) => validSchema(s, value, mode, depth + 1, unconditional);
   if (rule.enum && !rule.enum.some((x) => equal(x, value))) return false;
   const t =
     value === null
@@ -61,8 +76,7 @@ export function validSchema(rule, value, mode = "write", depth = 0, inherited = 
     return false;
   if (rule.allOf && !rule.allOf.every(same)) return false;
   if (rule.anyOf && !rule.anyOf.some(same)) return false;
-  if (rule.oneOf && rule.oneOf.filter(same).length !== 1)
-    return false;
+  if (rule.oneOf && rule.oneOf.filter(same).length !== 1) return false;
   if (rule.not && check(rule.not, value)) return false;
   if (t === "number") {
     if (

@@ -3,6 +3,24 @@ fn command(input : String) -> Json raise {
   let arguments = @engine.bounded_json(input)
   let action = @engine.text(@engine.field(arguments, "action"))
   match action {
+    "workflow-check" =>
+      return @engine.workflow_check(@engine.field(arguments, "steps"))
+    "workflow-remove" =>
+      return @engine.workflow_remove(
+        @engine.field(arguments, "steps"),
+        @engine.text(@engine.field(arguments, "removed")),
+      )
+    "workflow-assert" =>
+      return @engine.workflow_assert(
+        @engine.text(@engine.field(arguments, "kind")),
+        @engine.field(arguments, "observed") is True,
+      )
+    "workflow-category" =>
+      return Json(
+        @engine.workflow_category(
+          @engine.text(@engine.field(arguments, "code")),
+        ),
+      )
     "standard-expression" =>
       return @engine.standard_expression(
         @engine.text(@engine.field(arguments, "expression")),

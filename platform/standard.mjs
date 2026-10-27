@@ -292,6 +292,45 @@ export class StandardEngine {
     if (this.#closed) throw new Error("STANDARD_ENGINE_CLOSED");
     return this.#worker.call("request", { id: test.operation_id, test });
   }
+  async profiles() {
+    if (this.#closed) throw new Error("STANDARD_ENGINE_CLOSED");
+    return this.#worker.call("profiles", {});
+  }
+  async runSelected(base, { operationIds, priority = [] } = {}) {
+    const plan = await this.plan();
+    const known = new Set(this.description.operations.map((o) => o.id));
+    if (
+      !Array.isArray(operationIds) ||
+      !operationIds.length ||
+      operationIds.some((id) => !known.has(id)) ||
+      !Array.isArray(priority) ||
+      priority.some((id) => !known.has(id))
+    )
+      throw new Error("STANDARD_SELECTION");
+    const cases = plan.cases.filter((c) =>
+      operationIds.includes(c.operation_id),
+    );
+    cases.sort(
+      (a, b) =>
+        Number(priority.includes(b.operation_id)) -
+        Number(priority.includes(a.operation_id)),
+    );
+    const report = await this.#run(base, {
+      ...plan,
+      cases,
+      blockers: plan.blockers.filter(
+        (b) => !b.operation_id || operationIds.includes(b.operation_id),
+      ),
+    });
+    return {
+      ...report,
+      selection: {
+        selected: operationIds.length,
+        total: known.size,
+        full_suite: operationIds.length === known.size,
+      },
+    };
+  }
   async resolveLinks(id, context) {
     if (this.#closed) throw new Error("STANDARD_ENGINE_CLOSED");
     return this.#worker.call("links", { id, context, seed: this.options.seed });
@@ -436,15 +475,54 @@ export class StandardEngine {
     }
   }
   async run(base) {
+    return this.#run(base);
+  }
+  // Explicit in-process observation API. Context may contain secrets; it is
+  // never part of run()'s public summary or persisted by the engine.
+  async execute(base, input, { deadline, expectedStatuses } = {}) {
+    if (expectedStatuses !== undefined && (!Array.isArray(expectedStatuses) || !expectedStatuses.length || expectedStatuses.length>16 || expectedStatuses.some(s=>!Number.isInteger(s)||s<200||s>=500||[401,403,429].includes(s)))) throw new Error("STANDARD_EXPECTED_STATUSES");
+    if (
+      deadline !== undefined &&
+      (!Number.isSafeInteger(deadline) || deadline < 0)
+    )
+      throw new Error("STANDARD_EXECUTION_DEADLINE");
+    const test = cloneExact(input);
+    if (
+      !test ||
+      typeof test !== "object" ||
+      !Array.isArray(test.parameters) ||
+      !this.#description.operations.some((o) => o.id === test.operation_id) ||
+      typeof test.negative !== "boolean"
+    )
+      throw new Error("STANDARD_CASE_IR");
+    if ((await this.validateRequest(test)).valid !== !test.negative)
+      throw new Error("STANDARD_CASE_CONTRACT");
+    test.id = "workflow-case";
+    const observed = [];
+    const report = await this.#run(
+      base,
+      { cases: [test], blockers: [], truncated: false, deadline, expectedStatuses },
+      observed,
+    );
+    return {
+      record: report.records[0],
+      blockers: report.blockers,
+      context: observed[0],
+    };
+  }
+  async #run(base, customPlan, observed) {
     if (this.#closed) throw new Error("STANDARD_ENGINE_CLOSED");
-    const plan = await this.plan();
+    const plan = customPlan ?? (await this.plan());
     if (this.#closed) throw new Error("STANDARD_ENGINE_CLOSED");
     if (this.#busy) throw new Error("STANDARD_ENGINE_BUSY");
     this.#busy = true;
     this.#httpAbort = new AbortController();
     const records = [],
       blockers = [...plan.blockers],
-      deadline = Date.now() + this.options.totalTimeout;
+      deadline = Math.min(
+        Date.now() + this.options.totalTimeout,
+        customPlan?.deadline ?? Infinity,
+      );
     const guard = new Engine("{}", { allowRemote: this.options.allowRemote });
     try {
       // Explicit base overrides servers, but is never silently inferred from a
@@ -611,6 +689,11 @@ export class StandardEngine {
             negative: test.negative,
             contract_valid: contract.valid,
           });
+          if (customPlan?.expectedStatuses && contract.valid && response.status<500 && ![401,403,429].includes(response.status)) {
+            oracle.passed=customPlan.expectedStatuses.includes(response.status);
+            oracle.code=oracle.passed?'':'business_status';
+            oracle.fingerprint=oracle.passed?'':`${response.status}:business_status`;
+          }
           let callbacksValid = true;
           for (const receiver of receivers)
             if (
@@ -632,6 +715,7 @@ export class StandardEngine {
             status: response.status,
             ...oracle,
             contract_code: contract.code,
+            category: policy("workflow-category", { code: oracle.code }),
             ...(receivers.length
               ? {
                   callback_count: receivers.reduce(
@@ -642,7 +726,19 @@ export class StandardEngine {
                 }
               : {}),
           });
-          if (this.options.followLinks && !test.negative && contract.valid) {
+          observed?.push({
+            url: target.href,
+            method: operation.method,
+            status: response.status,
+            request: requestContext(test, request.headers),
+            response: { body, header: response.headers },
+          });
+          if (
+            !observed &&
+            this.options.followLinks &&
+            !test.negative &&
+            contract.valid
+          ) {
             try {
               const links = await this.resolveLinks(operation.id, {
                 url: target.href,
@@ -701,6 +797,7 @@ export class StandardEngine {
             break;
           }
         } catch {
+          const expired=Date.now()>=deadline;
           records.push({
             case_id: test.id,
             operation_id: operation.id,
@@ -711,6 +808,8 @@ export class StandardEngine {
               negative: test.negative,
               contract_valid: false,
             }),
+            ...(expired?{code:'total_deadline'}:{}),
+            category: expired?'budget':"transport",
           });
         } finally {
           for (const receiver of receivers) await receiver.close();

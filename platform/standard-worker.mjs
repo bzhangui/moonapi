@@ -727,6 +727,42 @@ function responseContract({ id, status, headers, body, empty = false }) {
   const valid = validate(content[key].schema, body, "read");
   return { valid, code: valid ? "" : "response_schema" };
 }
+function profiles() {
+  const summary = (schema) => {
+    const s = effective(schema);
+    return {
+      type: s.type,
+      format: s.format,
+      fields: Object.keys(s.properties || {}),
+      required: s.required || [],
+    };
+  };
+  return [...operations].map(([id, { op, route, method }]) => ({
+    id,
+    path: route,
+    method: method.toUpperCase(),
+    parameters: op.allParameters.map((p) => ({
+      name: p.name,
+      in: p.in,
+      required: !!p.required,
+      ...summary(p.schema),
+    })),
+    requests: Object.entries(op.requestBody?.content || {}).map(
+      ([media, c]) => ({ media, ...summary(c.schema) }),
+    ),
+    responses: Object.entries(op.responses).map(([status, r]) => ({
+      status,
+      location: !!Object.keys(r.headers || {}).find(
+        (h) => h.toLowerCase() === "location",
+      ),
+      links: Object.keys(r.links || {}),
+      content: Object.entries(r.content || {}).map(([media, c]) => ({
+        media,
+        ...summary(c.schema),
+      })),
+    })),
+  }));
+}
 function wireRequest({ id, test }) {
   const record = operations.get(id);
   if (!record) fail("STANDARD_UNKNOWN_OPERATION");
@@ -1178,25 +1214,27 @@ parentPort.on("message", async (message) => {
     const value =
       action === "compile"
         ? await compile(args)
-        : action === "variants"
-          ? variants(args)
-          : action === "request"
-            ? requestContract(args)
-            : action === "response"
-              ? responseContract(args)
-              : action === "encode"
-                ? wireRequest(args)
-                : action === "decode"
-                  ? wireResponse(args)
-                  : action === "links"
-                    ? await linked(args)
-                    : action === "callbacks"
-                      ? callbacks(args)
-                      : action === "callback"
-                        ? callbackContract(args)
-                        : action === "wire-request"
-                          ? wireRequestContract(args)
-                          : fail("STANDARD_UNKNOWN_ACTION");
+        : action === "profiles"
+          ? profiles()
+          : action === "variants"
+            ? variants(args)
+            : action === "request"
+              ? requestContract(args)
+              : action === "response"
+                ? responseContract(args)
+                : action === "encode"
+                  ? wireRequest(args)
+                  : action === "decode"
+                    ? wireResponse(args)
+                    : action === "links"
+                      ? await linked(args)
+                      : action === "callbacks"
+                        ? callbacks(args)
+                        : action === "callback"
+                          ? callbackContract(args)
+                          : action === "wire-request"
+                            ? wireRequestContract(args)
+                            : fail("STANDARD_UNKNOWN_ACTION");
     parentPort.postMessage(stringifyExact({ id, ok: true, value }));
   } catch (error) {
     // Library exceptions can contain document fragments, filesystem paths,

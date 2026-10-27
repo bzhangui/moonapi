@@ -12,7 +12,8 @@ export async function callbackReceiver(handle, timeout = 1000) {
       return;
     }
     if (++hits > 32) {
-      records.push({ valid: false, code: "callback_request_budget" });
+      if(hits===33)records.push({ valid: false, code: "callback_request_budget" });
+      req.resume();
       res.writeHead(429).end();
       return;
     }
@@ -40,6 +41,7 @@ export async function callbackReceiver(handle, timeout = 1000) {
     }
   });
   server.requestTimeout = Math.min(timeout, 30000);
+  server.maxConnections = 64;
   server.headersTimeout = Math.min(timeout, 30000);
   server.on("connection", (s) => {
     sockets.add(s);
@@ -54,7 +56,9 @@ export async function callbackReceiver(handle, timeout = 1000) {
     records,
     async settle() {
       const deadline = Date.now() + timeout;
-      while (Date.now() < deadline && !records.length)
+      // Observe the complete bounded window, including duplicate/late events.
+      // This is not an unbounded guarantee about future callbacks.
+      while (Date.now() < deadline && records.every((r) => r.valid))
         await new Promise((r) => setTimeout(r, 10));
       return records.length > 0 && records.every((r) => r.valid);
     },
