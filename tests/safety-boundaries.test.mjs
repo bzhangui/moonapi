@@ -5,7 +5,99 @@ import { StandardEngine } from "../platform/standard.mjs";
 import { StandardWorkflow } from "../platform/workflow.mjs";
 import { ownedResourceWorkflow } from "../platform/workflow-templates.mjs";
 import { concurrentRegisterProbe } from "../platform/concurrency.mjs";
-import { planResourceGraph } from "../platform/graph.mjs";
+import { planResourceGraph, runGraphCampaign } from "../platform/graph.mjs";
+import { standardHTTP } from "../platform/standard-http.mjs";
+import { resourceWorkflow } from "../platform/workflow-templates.mjs";
+test("graph campaigns stop other seeds and resets after an unknown committed write", async () => {
+  const f = await workflowFixture({ fault: "committed_response_lost" });
+  let resets = 0;
+  try {
+    const r = await runGraphCampaign(
+      workflowSource(),
+      f.base,
+      {
+        version: 2,
+        initial_state: {},
+        transitions: [
+          {
+            id: "create",
+            request: {
+              operation_id: "create",
+              parameters: [],
+              negative: false,
+              media: "application/json",
+              body: { name: "owned" },
+            },
+          },
+        ],
+      },
+      {
+        seeds: [7, 8],
+        engineOptions: { allowWrite: true },
+        runOptions: {
+          allowReset: true,
+          reset: async () => {
+            resets++;
+            return f.reset();
+          },
+        },
+      },
+    );
+    assert.equal(r.passed, false);
+    assert.equal(r.executed_seeds, 1);
+    assert.equal(r.truncated, true);
+    assert.equal(resets, 1);
+    assert.equal(f.creates, 1);
+  } finally {
+    await f.close();
+  }
+});
+test("an unknown write during reduction halts further candidates, resets and witness confirmation", async () => {
+  const f = await workflowFixture({ fault: "persistence" });
+  let creates = 0,
+    resets = 0;
+  const transport = {
+    version: 1,
+    id: "controlled-loss-on-third-create",
+    async send(url, request) {
+      const result = await standardHTTP(url, request);
+      if (request.method === "POST" && ++creates === 3)
+        throw new Error("controlled loss after commit");
+      return result;
+    },
+  };
+  const e = await StandardWorkflow.open(workflowSource(), {
+    allowWrite: true,
+    transport,
+  });
+  try {
+    const r = await e.run(
+      f.base,
+      resourceWorkflow({
+        create: "create",
+        read: "read",
+        update: "update",
+        remove: "delete",
+      }),
+      {
+        allowReset: true,
+        reset: async () => {
+          resets++;
+          return f.reset();
+        },
+        shrink: true,
+      },
+    );
+    assert.equal(r.shrink_confirmed, false);
+    assert.equal(r.shrinking_stopped_unknown_write, true);
+    assert.equal(r.execution.unknown_writes, 1);
+    assert.equal(creates, 3);
+    assert.equal(resets, 3);
+  } finally {
+    await e.close();
+    await f.close();
+  }
+});
 import {
   workflowFixture,
   workflowSource,

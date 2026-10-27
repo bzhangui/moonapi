@@ -469,7 +469,8 @@ export class StandardWorkflow {
       typeof shrink !== "boolean"
     )
       throw new Error("WORKFLOW_OPTIONS");
-    const model = workflowModel(input, this.description);
+    const description = this.description,
+      model = workflowModel(input, description);
     if (model.cleanup && !allowCleanup)
       throw new Error("WORKFLOW_CLEANUP_NOT_AUTHORIZED");
     if (
@@ -482,7 +483,7 @@ export class StandardWorkflow {
     );
     // Preflight every side effect before invoking even an authorized reset hook.
     for (const step of [...model.steps, ...(model.cleanup || [])]) {
-      const op = this.description.operations.find(
+      const op = description.operations.find(
         (o) => o.id === step.request.operation_id,
       );
       if (
@@ -508,6 +509,7 @@ export class StandardWorkflow {
       throw new Error("WORKFLOW_LEDGER_OPEN");
     }
     let attempt = 0;
+    let unknownWriteHalt = false;
     let lease;
     let leaseFinalized = false;
     const deadline = performance.now() + totalTimeout;
@@ -524,6 +526,14 @@ export class StandardWorkflow {
     }
     let attempts = 0;
     const managed = async (request, step_id, expect, step = {}) => {
+      const operation = description.operations.find(
+        (o) => o.id === request.operation_id,
+      );
+      if (
+        unknownWriteHalt &&
+        !["GET", "HEAD", "OPTIONS"].includes(operation?.method)
+      )
+        throw new Error("WORKFLOW_UNKNOWN_WRITE");
       if (lease)
         await lease.verify(
           AbortSignal.timeout(
@@ -536,8 +546,14 @@ export class StandardWorkflow {
         expectedStatuses: expect,
         role: step.role,
         authorizationProbe: step.authorizationProbe,
-        onEvent: (event) =>
-          ledger.event(current, event.state, { ...event, step_id }),
+        onEvent: (event) => {
+          if (
+            event.state === "unknown" &&
+            !["GET", "HEAD", "OPTIONS"].includes(event.method)
+          )
+            unknownWriteHalt = true;
+          return ledger.event(current, event.state, { ...event, step_id });
+        },
       });
     };
     const materialize = (s, contexts) => {
@@ -579,6 +595,12 @@ export class StandardWorkflow {
       };
     };
     const trial = async (steps, contexts, records) => {
+      if (unknownWriteHalt)
+        return {
+          records,
+          category: "blocked",
+          code: "unknown_write_requires_inspection",
+        };
       if (this.#closed)
         return { records, category: "blocked", code: "engine_closed" };
       if (performance.now() >= deadline)
@@ -834,7 +856,7 @@ export class StandardWorkflow {
               retained = candidate;
               i = 0;
             } else i++;
-            if (performance.now() >= deadline) break;
+            if (unknownWriteHalt || performance.now() >= deadline) break;
           }
           if (!model.cleanup) {
             for (const candidate of inputCandidates(retained)) {
@@ -843,7 +865,11 @@ export class StandardWorkflow {
                 stringifyExact(retained).length
               )
                 continue;
-              if (attempts >= shrinkBudget || performance.now() >= deadline)
+              if (
+                unknownWriteHalt ||
+                attempts >= shrinkBudget ||
+                performance.now() >= deadline
+              )
                 break;
               attempts++;
               inputAttempts++;
@@ -855,7 +881,9 @@ export class StandardWorkflow {
                 retained = candidate;
             }
           }
-          const final = await run(retained);
+          const final = unknownWriteHalt
+            ? { category: "blocked" }
+            : await run(retained);
           confirmed =
             final.category === "defect" &&
             final.fingerprint === initial.fingerprint;
@@ -898,6 +926,7 @@ export class StandardWorkflow {
         retained_step_ids: retained.map((s) => s.id),
         shrink_attempts: attempts,
         shrink_confirmed: confirmed,
+        shrinking_stopped_unknown_write: unknownWriteHalt,
         unstable,
         shrink_budget_exhausted:
           initial.category === "defect" &&

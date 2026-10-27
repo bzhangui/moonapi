@@ -6,6 +6,8 @@
 
 - 标准契约运行和标准 Workflow 共用执行账本。`prepared → dispatching → sent → responded → completed/failed`；丢失响应或崩溃保守归为 `unknown`。HTTP 请求结束写入不等于服务端提交。账本先落盘、逐条 fsync；不自动重放未知写入。
 - `ExecutionLedger.open({directory})` 可开启专用私有 JSONL；不指定目录只在内存。内容只含每次尝试的状态、方法、状态码、相对单调时间及每轮随机别名，不含 URL、请求/响应正文或凭据。`recoverLedger(file)` 只读恢复，校验序列、转换和哈希链；末尾半条记录不算成功，链不是签名。
+- 账本默认最多8 MiB；可用 `maxBytes` 在1 KiB–8 MiB内调低。达到预算会停止，不生成超出恢复器预算的文件，不覆盖或抛弃已有持久记录。
+- 未知写入的停止规则贯穿契约、Workflow 缩减和多种子 campaign：不继续后续变更/重置/候选或种子，也不确认见证。已知 ID 的只读所有权探测可以保留，但自动 DELETE 同样停止，清理未确认需人工核实。不能以切换种子或候选名义绕过不重试原则。
 - 标准 `ownedResourceWorkflow({create,read,update,remove,field})` 自动生成每轮随机标记。变更前 GET 核验标记；清理只能使用捕获的实际 ID，DELETE 后再 GET 确认缺席。外来标记、202 未完成删除、未知 ID 均不报清理成功。它不隔离邮件、扣款、库存等全局副作用，优先用于测试环境。
 - `IsolationLease` v1 为受信任接入方提供 acquire/verify/release 钩子，每次执行/重置检查租约，失效停止；不是跨主机锁实现或沙箱。适配方必须在服务端真正实施隔离并尊重 AbortSignal。SDK 无法撤销不合作钩子已经产生的副作用。
 - 总预算、回调等待和租约使用单调时钟。回调契约错误与回调等待超时分开；后者为不确定结果。401/403 只有显式 `authorizationProbe:true` 才能作为预期结果，429/5xx 不因此变绿。

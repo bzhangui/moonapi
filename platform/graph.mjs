@@ -94,17 +94,26 @@ export async function runGraphCampaign(
       const r = await engine.run(base, plan.model, runOptions);
       reports.push(r);
       if (r.passed) for (const id of plan.coverage.covered) covered.add(id);
+      if (
+        r.execution?.unknown_writes > 0 ||
+        ["blocked", "budget", "transport"].includes(r.category)
+      )
+        break;
     } finally {
       await engine.close();
     }
   }
   return {
     passed:
+      reports.length === seeds.length &&
       reports.every((r) => r.passed) &&
       covered.size === graph.transitions.length,
     covered_transitions: [...covered],
     total_transitions: graph.transitions.length,
     reports,
+    requested_seeds: seeds.length,
+    executed_seeds: reports.length,
+    truncated: reports.length !== seeds.length,
     exhaustive_state_space: false,
   };
 }

@@ -21,6 +21,25 @@ import {
 } from "../examples/workflow-fixture.mjs";
 import { resourceWorkflow } from "../platform/workflow-templates.mjs";
 import { publicReport } from "../platform/ci-tools.mjs";
+test("ledger stops before exceeding its recoverable byte budget, without discarding durable receipts", async () => {
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "moonapi-ledger-budget-"),
+  );
+  let ledger;
+  try {
+    ledger = await ExecutionLedger.open({ directory, maxBytes: 1024 });
+    assert.throws(() => {
+      for (let i = 1; i < 100; i++)
+        ledger.event(i, "prepared", { method: "POST" });
+    }, /RESOURCE_BUDGET/);
+    ledger.close();
+    assert.ok(fs.statSync(ledger.file).size <= 1024);
+    assert.ok((await recoverLedger(ledger.file)).attempts > 0);
+  } finally {
+    ledger?.close();
+    fs.rmSync(directory, { recursive: true });
+  }
+});
 const resource = () =>
   resourceWorkflow({
     create: "create",

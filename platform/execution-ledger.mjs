@@ -31,10 +31,19 @@ export class ExecutionLedger {
   #states = new Map();
   #start = performance.now();
   #closed = false;
-  static async open({ directory, runId = randomUUID() } = {}) {
+  #bytes = 0;
+  #maxBytes;
+  static async open({
+    directory,
+    runId = randomUUID(),
+    maxBytes = 8388608,
+  } = {}) {
     await loadCore();
     if (!/^[a-zA-Z0-9_-]{1,96}$/.test(runId)) throw new Error("LEDGER_RUN_ID");
     const ledger = new ExecutionLedger();
+    if (!Number.isInteger(maxBytes) || maxBytes < 1024 || maxBytes > 8388608)
+      throw new Error("LEDGER_RESOURCE_BUDGET");
+    ledger.#maxBytes = maxBytes;
     ledger.runId = runId;
     if (directory) {
       const root = privateDirectory(directory, { create: true });
@@ -73,8 +82,10 @@ export class ExecutionLedger {
       previous: this.#events.at(-1)?.hash || "0".repeat(64),
     };
     entry.hash = hash(entry);
+    const bytes = Buffer.from(JSON.stringify(entry) + "\n");
+    if (this.#bytes + bytes.length > this.#maxBytes)
+      throw new Error("LEDGER_RESOURCE_BUDGET");
     if (this.#fd !== undefined) {
-      const bytes = Buffer.from(JSON.stringify(entry) + "\n");
       let offset = 0;
       while (offset < bytes.length) {
         const n = fs.writeSync(this.#fd, bytes, offset);
@@ -83,6 +94,7 @@ export class ExecutionLedger {
       }
       fs.fsyncSync(this.#fd);
     }
+    this.#bytes += bytes.length;
     this.#events.push(entry);
     this.#states.set(attempt, state);
     return entry;
