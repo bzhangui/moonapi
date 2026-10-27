@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { resolveNpmCLI } from "./npm-cli.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const version = JSON.parse(
   fs.readFileSync(path.join(root, "package.json"), "utf8"),
@@ -82,9 +83,7 @@ fs.writeFileSync(
   path.join(destination, "package.json"),
   JSON.stringify(runtimePackage, null, 2),
 );
-const npmCLI =
-  process.env.MOONAPI_NPM_CLI ||
-  path.join(path.dirname(process.execPath), "node_modules/npm/bin/npm-cli.js");
+const npmCLI = resolveNpmCLI();
 const installed = spawnSync(
   process.execPath,
   [npmCLI, "ci", "--omit=dev", "--ignore-scripts", "--no-fund", "--no-audit"],

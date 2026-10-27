@@ -279,7 +279,8 @@ export class StandardWorkflow {
         return { records, category: "budget", code: "total_deadline" };
       if (reset) {
         const controller = new AbortController();
-        let timer;
+        let timer,
+          resetTimedOut = false;
         try {
           const ok = await Promise.race([
             Promise.resolve().then(() => reset(controller.signal)),
@@ -290,6 +291,7 @@ export class StandardWorkflow {
               };
               timer = setTimeout(
                 () => {
+                  resetTimedOut = true;
                   controller.abort();
                   reject(new Error("WORKFLOW_RESET_TIMEOUT"));
                 },
@@ -302,7 +304,8 @@ export class StandardWorkflow {
         } catch {
           return {
             records,
-            category: Date.now() >= deadline ? "budget" : "blocked",
+            category:
+              resetTimedOut || Date.now() >= deadline ? "budget" : "blocked",
             code: "reset_failed",
           };
         } finally {

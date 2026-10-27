@@ -68,7 +68,7 @@ node bin/moonapi-ci.mjs workflow your-spec.yaml --base http://127.0.0.1:8080 --m
 
 绑定只引用前序步骤；断言可引用当前/前序观察。literal 必须用 `{value:...}`，表达式用 `{from,expression}`。支持 equal/not_equal/exists/absent/count/status；`$statusCode` 按规范为字符串，须与 `"200"` 比较。`requires/effects` 是抽象状态标签，实际业务值仍须断言核验。数据/断言引用和状态前提都参与缩减保留。文件通过 `parseExact` 读取以保留 int64/十进制。
 
-`resourceWorkflow`、`idempotencyWorkflow`、`asyncWorkflow` 根据少量已确认操作生成模型，见 workflow-demo 与测试。资源模板用于专用环境，不同于旧 owned CRUD，它不声称自动检查归属。全局副作用仍需调用者隔离；不自动猜 DELETE，不自动理解库存/余额规则。
+`resourceWorkflow`、`idempotencyWorkflow`、`inventoryWorkflow`、`asyncWorkflow` 根据少量已确认操作生成模型，见 workflow-demo 与测试。资源模板包含删除后缺失确认；库存模板核验“预留→取消→重复取消”后库存与基准相同。模板用于专用环境，不同于旧 owned CRUD，它不声称自动检查归属。全局副作用仍需调用者隔离；不自动猜 DELETE，不自动理解任意库存/余额规则。
 
 `discoverDependencies(engine)` 给出显式 Links、Location 候选与响应字段/参数名关系。只有显式 Links 能通过标准 `followLinks` 授权执行；字段名唯一也不是可信业务证明。Location 须确认同源、路由、Schema 和所有权后显式绑定，不自动访问潜在 SSRF 地址；歧义候选保留提示。
 
@@ -80,11 +80,11 @@ node bin/moonapi-ci.mjs workflow your-spec.yaml --base http://127.0.0.1:8080 --m
 
 轮询只允许 GET/HEAD/OPTIONS，显式 `poll:{attempts,interval,pendingStatuses?}`，最多20次、间隔≤1000ms，受总期限约束；只重试成功读但业务条件未满足，或声明的 pending 状态。非幂等写、超时、断线、可能已提交但响应丢失不自动重试；重试须由调用者定义并验证幂等语义。
 
-`execute(base,case,{deadline?})` 返回**私有内存** `{record,context,blockers}`；context 可含 URL/数据/响应头，不可直接公开。普通 run 摘要不含这些观察。回调接收器观察完整有界窗口；重复/乱序仍需业务幂等与版本断言，契约正确不等于业务正确；窗口外未来事件不在本次保证内。
+`execute(base,case,{deadline?,expectedStatuses?})` 返回**私有内存** `{record,context,blockers}`；context 可含 URL/数据/响应头，不可直接公开。步骤 `expect:[404,410]` 可明确表示删除后缺失等业务预期，仍必须通过对应响应契约，不能掩盖5xx、401/403/429或 Schema 错误。普通 run 摘要不含这些观察。回调接收器观察完整有界窗口；重复/乱序仍需业务幂等与版本断言，契约正确不等于业务正确；窗口外未来事件不在本次保证内。
 
 ## CI、报告与私有证据
 
-`contractDiff(before,after)` 比较精确解析 JSON，保守选择整个 path-item；组件、安全、服务器变化选择全部。`documentDigest(source,documents)` 包含显式外部引用内容，改变即使历史失效。YAML/无法归一化时 CLI diff 要求全量，不冒称无影响。受影响 ID 可传给 `runSelected`；无变更由 CI 明确跳过，空选择不能当测试通过。
+`contractDiff(before,after,{beforeDocuments,afterDocuments})` 比较精确解析 JSON，保守选择整个 path-item；组件、安全、服务器或授权外部引用内容改变选择全部。CLI 用 `--before-references` 和 `--references` 提供两版 URI→文档映射。`documentDigest(source,documents)` 包含显式外部引用内容，改变即使历史失效。YAML/无法归一化时 CLI diff 要求全量，不冒称无影响。受影响 ID 可传给 `runSelected`；无变更由 CI 明确跳过，空选择不能当测试通过。
 
 `--history PATH` 读取同文档 hash 的失败操作优先，下一轮独占写 `PATH.next`，不覆盖历史。它保留操作标识，属于私有资料。相同 seed 不代表不同工具生成同一序列/数量。
 
