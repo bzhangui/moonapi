@@ -74,9 +74,10 @@ pub fn workflow_remove(steps : Json, removed : String) -> Json raise TestError {
 
 ///|
 pub fn workflow_assert(kind : String, observed : Bool) -> Json raise TestError {
-  guard ["equal", "not_equal", "exists", "absent", "status", "count"].contains(
-    kind,
-  ) else {
+  guard [
+    "equal", "not_equal", "exists", "absent", "status", "count", "gt", "gte", "lt",
+    "lte", "sum", "unique",
+  ].contains(kind) else {
     raise Invalid("workflow assertion kind")
   }
   {
@@ -95,6 +96,8 @@ pub fn workflow_category(code : String) -> String {
     "transport"
   } else if code == "access_or_rate_limit" || code == "redirect_not_followed" {
     "inconclusive"
+  } else if code == "callback_timeout" {
+    "inconclusive"
   } else if code.has_prefix("unsupported_") {
     "unsupported"
   } else if code.contains("budget") || code == "total_deadline" {
@@ -102,7 +105,7 @@ pub fn workflow_category(code : String) -> String {
   } else if code.has_prefix("business_") ||
     [
       "server_error", "response_contract", "negative_accepted", "positive_rejected",
-      "callback_contract_or_timeout",
+      "callback_contract_or_timeout", "callback_contract",
     ].contains(code) {
     "defect"
   } else {

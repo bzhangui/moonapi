@@ -1,6 +1,9 @@
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { parseExact, stringifyExact } from "./standard-value.mjs";
+import { atomicPrivate, readPrivate } from "./private-store.mjs";
+import { parseDefinition, canonicalDefinition } from "./definition.mjs";
+import { pointer } from "./standard-expression.mjs";
 const digest = (text) => createHash("sha256").update(text).digest("hex");
 const methods = [
   "get",
@@ -29,14 +32,64 @@ export function contractDiff(
   after,
   { beforeDocuments = {}, afterDocuments = {} } = {},
 ) {
-  // Accept exact parsed JSON objects. For YAML, callers must use a lossless
-  // normalizer; the CLI conservatively selects the full suite instead.
+  before = typeof before === "string" ? parseDefinition(before) : before;
+  after = typeof after === "string" ? parseDefinition(after) : after;
+  for (const d of [before, after])
+    if (
+      !d ||
+      typeof d !== "object" ||
+      Array.isArray(d) ||
+      !d.paths ||
+      typeof d.paths !== "object" ||
+      Array.isArray(d.paths) ||
+      typeof d.openapi !== "string" ||
+      !/^3\.0\.\d+$/.test(d.openapi)
+    )
+      throw new Error("DIFF_UNCERTAIN_DOCUMENT");
   const a = operations(before),
     b = operations(after),
     strip = (d) =>
-      Object.fromEntries(Object.entries(d).filter(([k]) => k !== "paths"));
+      Object.fromEntries(
+        Object.entries(d).filter(([k]) => !["paths", "components"].includes(k)),
+      );
+  let uncertain = false;
+  const closure = (item, document) => {
+    const refs = new Map(),
+      seen = new Set();
+    let visits = 0;
+    const visit = (value) => {
+      if (++visits > 50000) throw new Error("DIFF_BUDGET");
+      if (!value || typeof value !== "object") return;
+      if (typeof value.$ref === "string" && !seen.has(value.$ref)) {
+        seen.add(value.$ref);
+        if (!value.$ref.startsWith("#/")) {
+          uncertain = true;
+          return;
+        }
+        const target = pointer(document, value.$ref.slice(1));
+        if (target === undefined) {
+          uncertain = true;
+          return;
+        }
+        refs.set(value.$ref, target);
+        visit(target);
+      }
+      for (const child of Object.values(value)) visit(child);
+    };
+    visit(item);
+    return canonicalDefinition({
+      item,
+      refs: Object.fromEntries(
+        [...refs].sort(([a], [b]) => a.localeCompare(b)),
+      ),
+    });
+  };
+  const closuresA = new Map(a.map((o) => [o.id, closure(o.item, before)])),
+    closuresB = new Map(b.map((o) => [o.id, closure(o.item, after)]));
   const global =
-    stringifyExact(strip(before)) !== stringifyExact(strip(after)) ||
+    uncertain ||
+    !before.components !== !after.components ||
+    canonicalDefinition(strip(before)) !== canonicalDefinition(strip(after)) ||
     documentDigest("", beforeDocuments) !== documentDigest("", afterDocuments);
   const affected = b
     .filter(
@@ -47,7 +100,7 @@ export function contractDiff(
             old.id === op.id &&
             old.route === op.route &&
             old.method === op.method &&
-            stringifyExact(old.item) === stringifyExact(op.item),
+            closuresA.get(old.id) === closuresB.get(op.id),
         ),
     )
     .map((o) => o.id);
@@ -57,7 +110,7 @@ export function contractDiff(
     removed: a.filter((x) => !b.some((y) => x.id === y.id)).map((x) => x.id),
     full_suite_required: global,
     policy:
-      "Conservative path-item diff; any component, security, server, or external-reference change selects all current operations.",
+      "Lossless JSON/YAML and transitive local-reference impact; global policy, new component namespace, changed external documents or uncertain references select all. Advisory selection is not conformance proof.",
   };
 }
 export function documentDigest(source, documents = {}) {
@@ -95,7 +148,7 @@ export function historyPriority(history, documentHash, known) {
   return history.failed_operations.filter((id) => known.includes(id));
 }
 export function writePrivate(file, value) {
-  fs.writeFileSync(file, stringifyExact(value), { flag: "wx", mode: 0o600 });
+  atomicPrivate(file, value);
 }
 export function saveReplay(
   file,
@@ -118,10 +171,7 @@ export function saveReplay(
   });
 }
 export function loadReplay(file, { source, documents = {} }) {
-  const stat = fs.lstatSync(file);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 524288)
-    throw new Error("REPLAY_FILE");
-  const data = parseExact(fs.readFileSync(file, "utf8"));
+  const data = parseExact(readPrivate(file, 524288));
   if (
     data.format !== 1 ||
     data.private !== true ||
@@ -154,6 +204,8 @@ const codes = new Set([
   "access_or_rate_limit",
   "redirect_not_followed",
   "callback_contract_or_timeout",
+  "callback_contract",
+  "callback_timeout",
   "total_deadline",
   "business_equal",
   "business_not_equal",
@@ -161,10 +213,23 @@ const codes = new Set([
   "business_absent",
   "business_status",
   "business_count",
+  "business_gt",
+  "business_gte",
+  "business_lt",
+  "business_lte",
+  "business_sum",
+  "business_unique",
+  "isolation_release_failed",
+  "unknown_write_requires_inspection",
   "reset_failed",
   "reset_unconfirmed",
   "binding_missing",
   "request_contract_or_policy",
+  "ownership_lost",
+  "ownership_probe_failed",
+  "cleanup_unconfirmed",
+  "execution_failed",
+  "engine_closed",
 ]);
 export function publicReport(report) {
   const records = (report.records || []).map((r, i) => ({
@@ -192,6 +257,28 @@ export function publicReport(report) {
     category: categories.has(report.category) ? report.category : undefined,
     real_user_validation: false,
     records,
+    ...(report.execution
+      ? {
+          execution: Object.fromEntries(
+            [
+              "attempts",
+              "dispatched",
+              "sent",
+              "responses",
+              "unknown",
+              "unknown_writes",
+            ].map((k) => [
+              k,
+              Number.isInteger(report.execution[k]) ? report.execution[k] : 0,
+            ]),
+          ),
+        }
+      : {}),
+    ...(typeof report.cleanup_verified === "boolean"
+      ? { cleanup_verified: report.cleanup_verified }
+      : {}),
+    shrink_confirmed: report.shrink_confirmed === true,
+    unstable: report.unstable === true,
   };
 }
 const escape = (text) =>

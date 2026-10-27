@@ -1,4 +1,5 @@
 import http from "node:http";
+import { performance } from "node:perf_hooks";
 import { randomBytes } from "node:crypto";
 // Private, bounded, per-case loopback receiver. No application service is reused.
 export async function callbackReceiver(handle, timeout = 1000) {
@@ -56,10 +57,10 @@ export async function callbackReceiver(handle, timeout = 1000) {
     url: `http://127.0.0.1:${server.address().port}/${token}`,
     records,
     async settle() {
-      const deadline = Date.now() + timeout;
+      const deadline = performance.now() + timeout;
       // Observe the complete bounded window, including duplicate/late events.
       // This is not an unbounded guarantee about future callbacks.
-      while (Date.now() < deadline && records.every((r) => r.valid))
+      while (performance.now() < deadline && records.every((r) => r.valid))
         await new Promise((r) => setTimeout(r, 10));
       return records.length > 0 && records.every((r) => r.valid);
     },

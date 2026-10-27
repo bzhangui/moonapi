@@ -4,7 +4,7 @@ import { parentPort } from "node:worker_threads";
 import { createHash, randomUUID } from "node:crypto";
 import SwaggerParser from "@apidevtools/swagger-parser";
 import Enforcer from "openapi-enforcer";
-import { parseDocument, isMap, isSeq, isScalar, isAlias } from "yaml";
+import { parseDefinition } from "./definition.mjs";
 import {
   parseExact,
   stringifyExact,
@@ -60,50 +60,12 @@ const fail = (code) => {
   throw Object.assign(new Error(code), { code });
 };
 function parseSource(source, asData = false) {
-  const parsed = parseDocument(source, {
-    version: "1.2",
-    schema: "core",
-    uniqueKeys: true,
-    prettyErrors: false,
-  });
-  if (parsed.errors.length || parsed.warnings.length)
+  let value;
+  try {
+    value = parseDefinition(source);
+  } catch {
     fail("STANDARD_DOCUMENT_ENCODING");
-  parsed.toJS({ maxAliasCount: 20 }); // enforce alias expansion budget first
-  let visits = 0;
-  function ast(node, parents = new Set()) {
-    if (++visits > 50000 || parents.size > 64) fail("STANDARD_RESOURCE_BUDGET");
-    if (isAlias(node)) {
-      if (parents.has(node)) fail("STANDARD_DOCUMENT_ENCODING");
-      return ast(node.resolve(parsed), new Set(parents).add(node));
-    }
-    if (isMap(node)) {
-      const out = {};
-      for (const pair of node.items) {
-        if (!isScalar(pair.key) || typeof pair.key.value !== "string")
-          fail("STANDARD_DOCUMENT_ENCODING");
-        setOwn(out, pair.key.value, ast(pair.value, parents));
-      }
-      return out;
-    }
-    if (isSeq(node)) return node.items.map((x) => ast(x, parents));
-    if (isScalar(node) && typeof node.value === "number") {
-      let lexeme = node.source.replace(/^\+/, "");
-      if (/^-?0[xo][0-9a-f]+$/i.test(lexeme)) {
-        const negative = lexeme.startsWith("-");
-        lexeme = String(
-          (negative ? -1n : 1n) * BigInt(negative ? lexeme.slice(1) : lexeme),
-        );
-      }
-      lexeme = lexeme.replace(/^(-?)\./, "$10.").replace(/\.(?=[eE]|$)/, ".0");
-      try {
-        return number(lexeme);
-      } catch {
-        fail("STANDARD_NUMBER");
-      }
-    }
-    return node?.value ?? null;
   }
-  const value = ast(parsed.contents);
   bounded(value);
   return asData ? value : shieldLiterals(stripRefSiblings(value), literalKey);
 }

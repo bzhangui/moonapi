@@ -22,3 +22,7 @@ tool in an isolated comparison environment; it is not redistributed.
 The optional integration script starts a separately obtained PocketBase 0.40.5
 binary (MIT, Copyright 2022-present Gani Georgiev); it is not redistributed.
 Test collection migrations and adapter contracts are original MoonAPI fixtures.
+The local-only workbench uses @primer/css 22.3.2 (MIT) and theme tokens from
+@primer/primitives 11.8.1 (MIT). The independent OpenAPI dialect inspector
+uses @redocly/openapi-core 2.71.1 (MIT). All and their transitive license
+files remain in the locked runtime install.

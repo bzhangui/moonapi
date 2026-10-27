@@ -1,4 +1,6 @@
 import { Worker } from "node:worker_threads";
+import { performance } from "node:perf_hooks";
+import { transportAdapter, within } from "./adapters.mjs";
 import { Engine, loadCore, VERSION } from "./runner.mjs";
 import { encodeRequest, resolveServer } from "./standard-codec.mjs";
 import {
@@ -15,6 +17,7 @@ import {
   expression,
 } from "./standard-expression.mjs";
 import { STANDARD_CAPABILITIES } from "./standard-capabilities.mjs";
+import { ExecutionLedger } from "./execution-ledger.mjs";
 
 function policy(action, args) {
   const result = JSON.parse(
@@ -98,6 +101,8 @@ export class StandardEngine {
   #closed = false;
   #httpAbort;
   #codecs;
+  #credentialProvider;
+  #transport;
   get description() {
     return cloneExact(this.#description);
   }
@@ -118,6 +123,8 @@ export class StandardEngine {
       "linkDepth",
       "codecs",
       "documentURI",
+      "credentialProvider",
+      "transport",
     ];
     if (
       !options ||
@@ -167,6 +174,14 @@ export class StandardEngine {
         throw new Error("STANDARD_OPTIONS");
     await loadCore();
     const engine = new StandardEngine();
+    engine.#transport = transportAdapter(settings.transport);
+    if (
+      settings.credentialProvider !== undefined &&
+      (settings.credentialProvider?.version !== 1 ||
+        typeof settings.credentialProvider.resolve !== "function")
+    )
+      throw new Error("STANDARD_CREDENTIAL_PROVIDER");
+    engine.#credentialProvider = settings.credentialProvider;
     engine.#codecs = new Map();
     for (const [media, codec] of Object.entries(settings.codecs || {})) {
       if (
@@ -296,7 +311,10 @@ export class StandardEngine {
     if (this.#closed) throw new Error("STANDARD_ENGINE_CLOSED");
     return this.#worker.call("profiles", {});
   }
-  async runSelected(base, { operationIds, priority = [] } = {}) {
+  async runSelected(
+    base,
+    { operationIds, priority = [], journalDirectory } = {},
+  ) {
     const plan = await this.plan();
     const known = new Set(this.description.operations.map((o) => o.id));
     if (
@@ -316,13 +334,17 @@ export class StandardEngine {
         Number(priority.includes(b.operation_id)) -
         Number(priority.includes(a.operation_id)),
     );
-    const report = await this.#run(base, {
-      ...plan,
-      cases,
-      blockers: plan.blockers.filter(
-        (b) => !b.operation_id || operationIds.includes(b.operation_id),
-      ),
-    });
+    const report = await this.#runLogged(
+      base,
+      {
+        ...plan,
+        cases,
+        blockers: plan.blockers.filter(
+          (b) => !b.operation_id || operationIds.includes(b.operation_id),
+        ),
+      },
+      journalDirectory,
+    );
     return {
       ...report,
       selection: {
@@ -368,7 +390,7 @@ export class StandardEngine {
       empty,
     });
   }
-  #auth(operation, target, request) {
+  #auth(operation, target, request, credentials = this.#credentials) {
     if (
       !operation.security.length ||
       operation.security.some((r) => Object.keys(r).length === 0)
@@ -376,8 +398,8 @@ export class StandardEngine {
       return;
     const alternative = operation.security.find((requirement) =>
       Object.entries(requirement).every(([name, scopes]) => {
-        const credential = Object.hasOwn(this.#credentials, name)
-          ? this.#credentials[name]
+        const credential = Object.hasOwn(credentials, name)
+          ? credentials[name]
           : undefined;
         return (
           credential &&
@@ -399,7 +421,7 @@ export class StandardEngine {
     };
     for (const name of Object.keys(alternative)) {
       const scheme = operation.security_schemes[name],
-        credential = this.#credentials[name];
+        credential = credentials[name];
       if (
         scheme.type === "http" &&
         scheme.scheme?.toLowerCase() === "basic" &&
@@ -475,12 +497,51 @@ export class StandardEngine {
       else throw new Error("STANDARD_AUTH_SCHEME");
     }
   }
-  async run(base) {
-    return this.#run(base);
+  async #runLogged(base, plan, journalDirectory) {
+    const ledger = await ExecutionLedger.open({ directory: journalDirectory });
+    let attempt = 0;
+    try {
+      const report = await this.#run(base, {
+        ...plan,
+        onEvent: (e) => {
+          if (e.state === "prepared") attempt++;
+          ledger.event(attempt, e.state, e);
+        },
+      });
+      return { ...report, execution: ledger.summary() };
+    } finally {
+      ledger.close();
+    }
+  }
+  async run(base, { journalDirectory } = {}) {
+    return this.#runLogged(base, await this.plan(), journalDirectory);
   }
   // Explicit in-process observation API. Context may contain secrets; it is
   // never part of run()'s public summary or persisted by the engine.
-  async execute(base, input, { deadline, expectedStatuses } = {}) {
+  async execute(
+    base,
+    input,
+    {
+      deadline,
+      remainingMs,
+      expectedStatuses,
+      onEvent,
+      role,
+      authorizationProbe = false,
+    } = {},
+  ) {
+    if (
+      typeof authorizationProbe !== "boolean" ||
+      (role !== undefined && !/^[a-zA-Z0-9_.-]{1,64}$/.test(role))
+    )
+      throw new Error("STANDARD_ROLE");
+    if (
+      remainingMs !== undefined &&
+      (!Number.isFinite(remainingMs) || remainingMs < 0 || remainingMs > 600000)
+    )
+      throw new Error("STANDARD_EXECUTION_DEADLINE");
+    if (onEvent !== undefined && typeof onEvent !== "function")
+      throw new Error("STANDARD_OBSERVER");
     if (
       expectedStatuses !== undefined &&
       (!Array.isArray(expectedStatuses) ||
@@ -491,7 +552,8 @@ export class StandardEngine {
             !Number.isInteger(s) ||
             s < 200 ||
             s >= 500 ||
-            [401, 403, 429].includes(s),
+            s === 429 ||
+            (!authorizationProbe && [401, 403].includes(s)),
         ))
     )
       throw new Error("STANDARD_EXPECTED_STATUSES");
@@ -520,6 +582,16 @@ export class StandardEngine {
         blockers: [],
         truncated: false,
         deadline,
+        remainingMs: Math.max(
+          0,
+          Math.min(
+            remainingMs ?? Infinity,
+            deadline === undefined ? Infinity : deadline - Date.now(),
+          ),
+        ),
+        onEvent,
+        role,
+        authorizationProbe,
         expectedStatuses,
       },
       observed,
@@ -540,9 +612,14 @@ export class StandardEngine {
     const records = [],
       blockers = [...plan.blockers],
       deadline = Math.min(
-        Date.now() + this.options.totalTimeout,
-        customPlan?.deadline ?? Infinity,
+        performance.now() + this.options.totalTimeout,
+        performance.now() + (customPlan?.remainingMs ?? Infinity),
       );
+    const budgetSignal = AbortSignal.any([
+      this.#httpAbort.signal,
+      AbortSignal.timeout(Math.ceil(Math.max(1, deadline - performance.now()))),
+    ]);
+    const wait = (fn) => within(budgetSignal, fn, "STANDARD_TOTAL_DEADLINE");
     const guard = new Engine("{}", { allowRemote: this.options.allowRemote });
     try {
       // Explicit base overrides servers, but is never silently inferred from a
@@ -565,13 +642,56 @@ export class StandardEngine {
           blockers.push({ case_id: test.id, code: "write_not_authorized" });
           continue;
         }
-        if (Date.now() >= deadline) {
+        if (performance.now() >= deadline) {
           blockers.push({ code: "total_deadline" });
           break;
         }
-        let request, target;
+        let request,
+          target,
+          totalSignal,
+          credentials = this.#credentials;
+        let phase = "";
+        const emit = (state, status = 0) => {
+          if (state === "sent" && phase !== "dispatching") return;
+          const result = customPlan?.onEvent?.({
+            state,
+            method: operation.method,
+            operation_id: operation.id,
+            status,
+          });
+          if (result && typeof result.then === "function")
+            throw new Error("STANDARD_OBSERVER_MUST_BE_SYNCHRONOUS");
+          phase = state;
+        };
         const receivers = [];
+        emit("prepared");
         try {
+          if (this.#credentialProvider) {
+            const signal = AbortSignal.any([
+              this.#httpAbort.signal,
+              AbortSignal.timeout(
+                Math.ceil(Math.max(1, deadline - performance.now())),
+              ),
+            ]);
+            credentials = await within(
+              signal,
+              () =>
+                this.#credentialProvider.resolve({
+                  operation_id: operation.id,
+                  method: operation.method,
+                  role: customPlan?.role || "default",
+                  signal,
+                }),
+              "STANDARD_CREDENTIAL_DEADLINE",
+            );
+            if (
+              !credentials ||
+              typeof credentials !== "object" ||
+              Array.isArray(credentials) ||
+              Buffer.byteLength(JSON.stringify(credentials)) > 16384
+            )
+              throw new Error("STANDARD_CREDENTIAL_PROVIDER_RESULT");
+          }
           if (operation.callbacks.length) {
             if (!this.options.allowCallbacks)
               throw new Error("STANDARD_CALLBACK_NOT_AUTHORIZED");
@@ -597,11 +717,11 @@ export class StandardEngine {
                     ...callback,
                     incoming,
                     seed: this.options.seed,
-                    credentials: this.#credentials,
+                    credentials,
                   }),
                 Math.min(
                   this.options.callbackTimeout,
-                  Math.max(10, deadline - Date.now()),
+                  Math.max(10, deadline - performance.now()),
                 ),
               );
               receivers.push(receiver);
@@ -622,7 +742,9 @@ export class StandardEngine {
           );
           if (encoder && Object.hasOwn(test, "body")) {
             request.body = Buffer.from(
-              await encoder.encode(cloneExact(test.body)),
+              await wait(() =>
+                encoder.encode(cloneExact(test.body), budgetSignal),
+              ),
             );
             if (request.body.length > 262144)
               throw new Error("STANDARD_REQUEST_BUDGET");
@@ -637,7 +759,7 @@ export class StandardEngine {
           target = new URL(baseURL.href.replace(/\/$/, "") + request.route);
           if (target.origin !== origin.origin || target.href.length > 8192)
             throw new Error("STANDARD_TARGET_BUDGET");
-          this.#auth(operation, target, request);
+          this.#auth(operation, target, request, credentials);
           const wireContract = await this.#worker.call("wire-request", {
             id: operation.id,
             route: request.route,
@@ -645,13 +767,21 @@ export class StandardEngine {
             raw: request.body?.toString("base64"),
             decodedBody:
               encoder && request.body
-                ? await encoder.decode(request.body)
+                ? await wait(() => encoder.decode(request.body, budgetSignal))
                 : undefined,
           });
           if (wireContract.valid !== !test.negative)
             throw new Error("STANDARD_WIRE_CONTRACT_MISMATCH");
         } catch (error) {
+          emit("blocked");
           for (const receiver of receivers) await receiver.close();
+          if (
+            error.message === "STANDARD_TOTAL_DEADLINE" ||
+            performance.now() >= deadline
+          ) {
+            blockers.push({ code: "total_deadline" });
+            break;
+          }
           blockers.push({
             case_id: test.id,
             code: "serialization_or_auth_blocked",
@@ -662,20 +792,22 @@ export class StandardEngine {
           continue;
         }
         try {
-          const response = await standardHTTP(target, {
+          emit("dispatching");
+          totalSignal = AbortSignal.timeout(
+            Math.ceil(Math.max(1, deadline - performance.now())),
+          );
+          const response = await this.#transport.send(target, {
             method: operation.method,
             headers: request.headers,
             body: request.body,
+            onSent: () => emit("sent"),
             signal: AbortSignal.any([
               this.#httpAbort.signal,
-              AbortSignal.timeout(
-                Math.max(
-                  1,
-                  Math.min(this.options.timeout, deadline - Date.now()),
-                ),
-              ),
+              totalSignal,
+              AbortSignal.timeout(this.options.timeout),
             ]),
           });
+          emit("responded", response.status);
           const decoder = this.#codecs.get(
             response.headers["content-type"]
               ?.split(";")[0]
@@ -683,7 +815,7 @@ export class StandardEngine {
               .toLowerCase(),
           );
           const decodedBody = decoder
-            ? await decoder.decode(response.raw)
+            ? await wait(() => decoder.decode(response.raw, budgetSignal))
             : undefined;
           const decoded = decoder
             ? {
@@ -713,7 +845,9 @@ export class StandardEngine {
             customPlan?.expectedStatuses &&
             contract.valid &&
             response.status < 500 &&
-            ![401, 403, 429].includes(response.status)
+            response.status !== 429 &&
+            (customPlan?.authorizationProbe ||
+              ![401, 403].includes(response.status))
           ) {
             oracle.passed = customPlan.expectedStatuses.includes(
               response.status,
@@ -733,10 +867,13 @@ export class StandardEngine {
               callbacksValid = false;
           if (!callbacksValid) {
             oracle.passed = false;
-            oracle.code = "callback_contract_or_timeout";
-            oracle.fingerprint =
-              String(response.status) + ":callback_contract_or_timeout";
+            oracle.code = receivers.some((r) => r.records.some((x) => !x.valid))
+              ? "callback_contract"
+              : "callback_timeout";
+            oracle.inconclusive = oracle.code === "callback_timeout";
+            oracle.fingerprint = String(response.status) + ":" + oracle.code;
           }
+          emit(oracle.passed ? "completed" : "failed", response.status);
           records.push({
             case_id: test.id,
             operation_id: operation.id,
@@ -821,12 +958,14 @@ export class StandardEngine {
               });
             }
           }
-          if (Date.now() >= deadline) {
+          if (performance.now() >= deadline) {
             blockers.push({ code: "total_deadline" });
             break;
           }
         } catch {
-          const expired = Date.now() >= deadline;
+          if (["dispatching", "sent", "responded"].includes(phase))
+            emit("unknown");
+          const expired = totalSignal?.aborted || performance.now() >= deadline;
           records.push({
             case_id: test.id,
             operation_id: operation.id,
@@ -840,6 +979,13 @@ export class StandardEngine {
             ...(expired ? { code: "total_deadline" } : {}),
             category: expired ? "budget" : "transport",
           });
+          if (
+            !["GET", "HEAD", "OPTIONS"].includes(operation.method) &&
+            phase === "unknown"
+          ) {
+            blockers.push({ code: "unknown_write_requires_inspection" });
+            break;
+          }
         } finally {
           for (const receiver of receivers) await receiver.close();
         }

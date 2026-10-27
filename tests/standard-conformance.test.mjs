@@ -1097,7 +1097,10 @@ test("callback timeout and link depth budgets are inconclusive, never successful
         const r = await e.run(f.base);
         assert.equal(r.passed, false);
         assert.ok(
-          r.records.some((r) => r.code === "callback_contract_or_timeout"),
+          r.records.some(
+            (r) =>
+              r.code === "callback_timeout" && r.category === "inconclusive",
+          ),
         );
       },
       { allowWrite: true, allowCallbacks: true, callbackTimeout: 20 },

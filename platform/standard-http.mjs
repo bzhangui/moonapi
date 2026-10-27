@@ -1,7 +1,10 @@
 import http from "node:http";
 import https from "node:https";
 // Unlike fetch, this transport supports TRACE; no redirect or ambient cookie jar.
-export function standardHTTP(target, { method, headers, body, signal }) {
+export function standardHTTP(
+  target,
+  { method, headers, body, signal, onSent },
+) {
   return new Promise((resolve, reject) => {
     const req = (target.protocol === "https:" ? https : http).request(
       target,
@@ -31,6 +34,13 @@ export function standardHTTP(target, { method, headers, body, signal }) {
       },
     );
     req.on("error", reject);
+    req.once("finish", () => {
+      try {
+        onSent?.();
+      } catch {
+        req.destroy(new Error("STANDARD_OBSERVER_FAILED"));
+      }
+    });
     req.on("upgrade", (_res, socket) => {
       socket.destroy();
       reject(new Error("STANDARD_HTTP_UPGRADE"));

@@ -1,5 +1,7 @@
 # 第三方依赖与许可
 
+本机工作台另使用官方主题变量 `@primer/primitives` **11.8.1**（MIT），配合 `@primer/css` 的组件样式。原许可随锁定依赖保留，不以手写外观冒充官方组件。
+
 本项目 Apache-2.0；原有 `LICENSE`、`NOTICE`、MoonBit 标准库许可保持。新增标准适配通过 npm 安装下列库，不复制其源码为原创实现。使用 `npm ci --ignore-scripts` 按 `package-lock.json` 固定完整依赖图与完整性摘要；需要 Node >=22.19.0（Swagger Parser 的最低版本要求）。
 
 | 直接依赖                    | 锁定版本 | 许可证     | 用途                                             |
@@ -11,8 +13,10 @@
 | yaml                        | 2.9.1    | ISC        | YAML 1.2/JSON 解析、重复键和别名预算             |
 | lossless-json               | 4.3.3    | MIT        | 精确 JSON 数字词法和工作线程消息                 |
 | saxes                       | 6.0.0    | ISC        | XML 语法/命名空间解析，拒绝 DTD；不解析外部实体  |
+| @primer/css                 | 22.3.2   | MIT        | 仅本机操作台使用的官方样式组件                   |
+| @redocly/openapi-core       | 2.71.1   | MIT        | 独立方言结构检查；不冒充现代方言运行支持         |
 
-传递依赖的当前清单（包名/版本/声明许可证）：
+下列为原基础适配依赖；新增检查器/主题的完整当前传递图和许可证以锁文件为准，标准本地运行包同时提供逐项 CycloneDX `sbom.cdx.json`，不以这份历史摘录冒称完整清单：
 
 - @apidevtools/json-schema-ref-parser 16.0.5 MIT；@apidevtools/openapi-schemas 2.1.0 MIT；@apidevtools/swagger-methods 3.0.2 MIT。
 - ajv 8.20.0 MIT；@types/json-schema 7.0.15 MIT；openapi-types 12.1.3 MIT。

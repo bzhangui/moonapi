@@ -1,4 +1,5 @@
 import { cloneExact } from "./standard-value.mjs";
+import { randomBytes } from "node:crypto";
 const req = (operation_id, body) => ({
   operation_id,
   parameters: [],
@@ -82,6 +83,33 @@ export function resourceWorkflow({
         : []),
     ],
   };
+}
+export function ownedResourceWorkflow(options) {
+  if (!options.remove) throw new Error("OWNED_DELETE_REQUIRED");
+  const prefix = "moonapi_" + randomBytes(12).toString("hex"),
+    initial = prefix + "_a",
+    changed = prefix + "_b";
+  const model = resourceWorkflow({ ...options, initial, changed });
+  const get = model.steps.find((s) => s.id === "read"),
+    pointer =
+      "/" + (options.field || "name").replace(/~/g, "~0").replace(/\//g, "~1");
+  const ownership = () => ({
+    request: cloneExact(get.request),
+    bindings: cloneExact(get.bindings),
+    pointer,
+    allowed: [initial, changed],
+  });
+  for (const s of model.steps)
+    if (["update", "delete"].includes(s.id)) s.ownership = ownership();
+  model.cleanup = [
+    {
+      id: "owned_cleanup",
+      request: req(options.remove),
+      bindings: cloneExact(get.bindings),
+      ownership: ownership(),
+    },
+  ];
+  return model;
 }
 export function idempotencyWorkflow({
   operation,

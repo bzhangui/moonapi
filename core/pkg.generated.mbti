@@ -13,6 +13,12 @@ pub fn capture_values(Json, Json, Json) -> Json raise TestError
 
 pub fn crud_plan(Spec, String, String, String, String) -> Json raise TestError
 
+pub fn exact_decimal_relation(Json, Json, String) -> Bool raise TestError
+
+pub fn exact_decimal_sum(Json, Json) -> Bool raise TestError
+
+pub fn execution_transition(String, String) -> Json raise TestError
+
 pub fn field(Json, String) -> Json
 
 pub fn generate_sequence(Json, Int, Int) -> Json raise TestError
@@ -34,6 +40,12 @@ pub fn operation(Spec, String) -> Operation raise TestError
 pub fn parse_openapi(String) -> Spec raise
 
 pub fn plan(Spec, seed? : Int, limit? : Int) -> Array[Case] raise TestError
+
+pub fn register_history(Int, Json) -> Json raise TestError
+
+pub fn resource_graph_plan(Json, Int, Int) -> Json raise TestError
+
+pub fn resource_state_check(Json, Json) -> Json raise TestError
 
 pub fn scenario_case(Spec, Json, Json, seed? : Int) -> Case raise TestError
 

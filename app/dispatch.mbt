@@ -3,6 +3,47 @@ fn command(input : String) -> Json raise {
   let arguments = @engine.bounded_json(input)
   let action = @engine.text(@engine.field(arguments, "action"))
   match action {
+    "exact-decimal-relation" =>
+      return Json(
+        @engine.exact_decimal_relation(
+          @engine.field(arguments, "left"),
+          @engine.field(arguments, "right"),
+          @engine.text(@engine.field(arguments, "kind")),
+        ),
+      )
+    "exact-decimal-sum" =>
+      return Json(
+        @engine.exact_decimal_sum(
+          @engine.field(arguments, "values"),
+          @engine.field(arguments, "expected"),
+        ),
+      )
+    "register-history" => {
+      let initial : Int32 = @json.from_json(@engine.field(arguments, "initial"))
+      return @engine.register_history(
+        initial,
+        @engine.field(arguments, "history"),
+      )
+    }
+    "resource-state-check" =>
+      return @engine.resource_state_check(
+        @engine.field(arguments, "initial"),
+        @engine.field(arguments, "steps"),
+      )
+    "resource-graph-plan" => {
+      let seed : Int32 = @json.from_json(@engine.field(arguments, "seed"))
+      let limit : Int32 = @json.from_json(@engine.field(arguments, "limit"))
+      return @engine.resource_graph_plan(
+        @engine.field(arguments, "graph"),
+        seed,
+        limit,
+      )
+    }
+    "execution-transition" =>
+      return @engine.execution_transition(
+        @engine.text(@engine.field(arguments, "from")),
+        @engine.text(@engine.field(arguments, "to")),
+      )
     "workflow-check" =>
       return @engine.workflow_check(@engine.field(arguments, "steps"))
     "workflow-remove" =>
