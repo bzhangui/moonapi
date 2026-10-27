@@ -1,15 +1,10 @@
 // Required by validate after all-target builds. No credentials or user data.
-import path from "node:path";
-import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { loadCore } from "../platform/runner.mjs";
-const native = path.resolve(
-  "_build/native/release/build/cmd/policy/policy" +
-    (process.platform === "win32" ? ".exe" : ""),
-);
-if (!fs.statSync(native).isFile())
-  throw new Error("NATIVE_POLICY_BUILD_REQUIRED");
+import { moon, moonEnv } from "./build.mjs";
+const root = fileURLToPath(new URL("../", import.meta.url));
 await loadCore();
 const vectors = [
   { action: "execution-transition", from: "sent", to: "unknown" },
@@ -78,13 +73,28 @@ const vectors = [
 for (const vector of vectors) {
   const input = JSON.stringify(vector),
     js = JSON.parse(globalThis.__moonapi_core(input)),
-    result = spawnSync(native, [input], {
-      encoding: "utf8",
-      timeout: 5000,
-      windowsHide: true,
-      maxBuffer: 1048576,
-    });
-  assert.equal(result.status, 0);
+    result = spawnSync(
+      moon,
+      [
+        "run",
+        "cmd/policy",
+        "--target",
+        "native",
+        "--release",
+        "--frozen",
+        "--",
+        input,
+      ],
+      {
+        cwd: root,
+        env: moonEnv,
+        encoding: "utf8",
+        timeout: 15000,
+        windowsHide: true,
+        maxBuffer: 1048576,
+      },
+    );
+  assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), js);
 }
 console.log(
