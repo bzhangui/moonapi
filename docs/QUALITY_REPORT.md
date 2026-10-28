@@ -18,6 +18,8 @@
 
 本机 `scripts/package.mjs` 和 `scripts/package-standard.mjs` 已分别通过：旧包33项，新标准包5146项清单，独立锁定安装41个依赖及原许可，manifest精确文件集合/摘要、标准/高级/状态/安全/恢复示例、工作台重定位冒烟与方言检查通过。标准包含SBOM/未签名provenance，SDK/Node/后端不内置；没有上传或发布。正式冻结提交的来源状态另按生成provenance核实，工作区dirty时不会冒称clean。
 
+首轮源提交 `2e25a32` 的 [CI40672567983](https://github.com/bzhangui/moonapi/actions/runs/40672567983) 中Windows/Ubuntu成功，macOS的签名CLI“sidecar不得位于包内”回归失败（224/225）。已定位：root规范化到/private/var，而sidecar仍保留/var别名，字符串包含判断失效。修复改为先规范化sidecar物理父目录，再使用path.relative判包含，同时覆盖Windows大小写语义；没有删断言。修复后本机再次225/225，后续跨平台复验另记。
+
 ## 2026-10-27：0.5.0-rc.1 三批候选升级
 
 Windows x64、Node 24.15.0、私有 moonc 0.10.15。未更新全局 SDK、未修改其他项目。源码/核心包/运行包状态分别记录，本轮未发布 Mooncakes 或上传运行包。

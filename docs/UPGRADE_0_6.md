@@ -119,6 +119,8 @@ HMAC是**共享密钥认证，不是公钥签名**。没有独立存储的最终
 
 默认运行包仍未签名。调用者自行准备/保管Ed25519密钥并经独立可信渠道分发公钥。工具不生成项目身份，不提供假签名认证；测试只用一次性合成密钥。
 
+下列维护命令在源码目录运行；不把未内置的开发脚本当作运行包入口。sidecar判断先规范化物理父目录，再按平台路径规则检查，不能经macOS系统临时目录别名或Windows大小写路径将签名放入包内。
+
 ```sh
 node scripts/sign-manifest.mjs sign .local/releases/EXACT_BUNDLE .local/private-key.pem .local/manifest.signature.json
 node scripts/sign-manifest.mjs verify .local/releases/EXACT_BUNDLE .local/trusted-public-key.pem .local/manifest.signature.json

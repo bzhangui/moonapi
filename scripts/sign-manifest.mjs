@@ -20,8 +20,20 @@ try {
   )
     throw new Error();
   const root = privateDirectory(bundle),
-    signatureFile = path.resolve(sidecar);
-  if (signatureFile === root || signatureFile.startsWith(root + path.sep))
+    requestedSidecar = path.resolve(sidecar),
+    signatureFile = path.join(
+      privateDirectory(path.dirname(requestedSidecar)),
+      path.basename(requestedSidecar),
+    ),
+    relative = path.relative(root, signatureFile);
+  // Compare physical parents, not /var vs /private/var aliases. path.relative
+  // also respects Windows case-insensitive drive/path containment semantics.
+  if (
+    relative === "" ||
+    (!path.isAbsolute(relative) &&
+      relative !== ".." &&
+      !relative.startsWith(".." + path.sep))
+  )
     throw new Error();
   const verified = spawnSync(
     process.execPath,
