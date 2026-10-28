@@ -6,3 +6,10 @@ node_modules/
 coverage/
 *.log
 *申报书*.md
+.moonapi-private/
+*.intent.json
+*.disposition.json
+*.pem
+*.key
+*.pfx
+*.p12

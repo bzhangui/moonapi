@@ -17,7 +17,12 @@ import {
   expression,
 } from "./standard-expression.mjs";
 import { STANDARD_CAPABILITIES } from "./standard-capabilities.mjs";
-import { ExecutionLedger } from "./execution-ledger.mjs";
+import { ExecutionLedger, journalSettings } from "./execution-ledger.mjs";
+import { documentDigest } from "./ci-tools.mjs";
+import {
+  intentEnvironmentBinding,
+  intentRequestDigest,
+} from "./execution-intent.mjs";
 
 function policy(action, args) {
   const result = JSON.parse(
@@ -103,6 +108,8 @@ export class StandardEngine {
   #codecs;
   #credentialProvider;
   #transport;
+  #intentStore;
+  #documentBinding;
   get description() {
     return cloneExact(this.#description);
   }
@@ -125,6 +132,7 @@ export class StandardEngine {
       "documentURI",
       "credentialProvider",
       "transport",
+      "intentStore",
     ];
     if (
       !options ||
@@ -175,6 +183,14 @@ export class StandardEngine {
     await loadCore();
     const engine = new StandardEngine();
     engine.#transport = transportAdapter(settings.transport);
+    if (
+      settings.intentStore !== undefined &&
+      (settings.intentStore?.version !== 1 ||
+        typeof settings.intentStore.prepare !== "function")
+    )
+      throw new Error("STANDARD_INTENT_STORE");
+    engine.#intentStore = settings.intentStore;
+    engine.#documentBinding = documentDigest(source, settings.documents);
     if (
       settings.credentialProvider !== undefined &&
       (settings.credentialProvider?.version !== 1 ||
@@ -313,7 +329,7 @@ export class StandardEngine {
   }
   async runSelected(
     base,
-    { operationIds, priority = [], journalDirectory } = {},
+    { operationIds, priority = [], journalDirectory, journalOptions } = {},
   ) {
     const plan = await this.plan();
     const known = new Set(this.description.operations.map((o) => o.id));
@@ -344,6 +360,7 @@ export class StandardEngine {
         ),
       },
       journalDirectory,
+      journalOptions,
     );
     return {
       ...report,
@@ -497,8 +514,11 @@ export class StandardEngine {
       else throw new Error("STANDARD_AUTH_SCHEME");
     }
   }
-  async #runLogged(base, plan, journalDirectory) {
-    const ledger = await ExecutionLedger.open({ directory: journalDirectory });
+  async #runLogged(base, plan, journalDirectory, journalOptions) {
+    const ledger = await ExecutionLedger.open({
+      ...journalSettings(journalOptions),
+      directory: journalDirectory,
+    });
     let attempt = 0;
     try {
       const report = await this.#run(base, {
@@ -513,8 +533,13 @@ export class StandardEngine {
       ledger.close();
     }
   }
-  async run(base, { journalDirectory } = {}) {
-    return this.#runLogged(base, await this.plan(), journalDirectory);
+  async run(base, { journalDirectory, journalOptions } = {}) {
+    return this.#runLogged(
+      base,
+      await this.plan(),
+      journalDirectory,
+      journalOptions,
+    );
   }
   // Explicit in-process observation API. Context may contain secrets; it is
   // never part of run()'s public summary or persisted by the engine.
@@ -775,6 +800,32 @@ export class StandardEngine {
           });
           if (wireContract.valid !== !test.negative)
             throw new Error("STANDARD_WIRE_CONTRACT_MISMATCH");
+          if (
+            this.#intentStore &&
+            !["GET", "HEAD", "OPTIONS"].includes(operation.method)
+          ) {
+            const receipt = await wait(() =>
+              this.#intentStore.prepare(
+                {
+                  method: operation.method,
+                  operationId: operation.id,
+                  environmentBinding: intentEnvironmentBinding(origin.href),
+                  documentBinding: this.#documentBinding,
+                  requestDigest: intentRequestDigest(
+                    operation.method,
+                    target,
+                    request,
+                  ),
+                },
+                budgetSignal,
+              ),
+            );
+            if (
+              receipt?.durable !== true ||
+              receipt.automatic_replay_permitted !== false
+            )
+              throw new Error("STANDARD_INTENT_NOT_DURABLE");
+          }
         } catch (error) {
           emit("blocked");
           for (const receiver of receivers) await receiver.close();

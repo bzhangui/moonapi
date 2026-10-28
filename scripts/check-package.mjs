@@ -15,7 +15,7 @@ const names = (result.stdout + "\n" + result.stderr)
   );
 if (
   names.some((s) =>
-    /申报书|(?:^|[\\/])(?:\.local|\.env[^\\/]*|credentials\.json|node_modules|\.git|_build|coverage)(?:[\\/]|$)|\.(?:pem|key|dpapi)$/i.test(
+    /申报书|(?:^|[\\/])(?:\.local|\.moonapi-private|\.env[^\\/]*|credentials\.json|node_modules|\.git|_build|coverage)(?:[\\/]|$)|\.(?:pem|key|dpapi|intent\.json|disposition\.json)$/i.test(
       s,
     ),
   )
