@@ -2,7 +2,9 @@
 
 ## 2026-10-28：0.6.0-rc.1 安全闭环与扩展基础
 
-本机Windows x64 / Node24.15.0 / 私有moonc0.10.15。本轮仅候选源码及本地验证包，不发布Mooncakes或运行包；尚不能把0.5的历史CI当作本轮跨平台证据。
+本机Windows x64 / Node24.15.0 / 私有moonc0.10.15。本轮仅候选源码及本地验证包，不发布Mooncakes或运行包；0.5历史CI与本轮精确提交的证据分开记录。
+
+**最终功能源码** `ada3a97c60fad47ba752ccdd48729f3bbb4df489` 的 [CI40673362956](https://github.com/bzhangui/moonapi/actions/runs/40673362956) 已核实Windows/macOS/Ubuntu全部成功。CI使用Node22、stable moonc0.10.17；每平台225 Node、43核心×四目标、9组原生/JS对照、示例、覆盖与两类运行包验证通过。macOS的系统路径别名签名限制回归通过；Linux另有独立PocketBase/SQLite六轮、哨兵/重启持久化及专用进程/合成数据清理成功。后续文档补证不改变该功能源码。
 
 - 最终冻结功能后 `node scripts/validate.mjs` 退出0：**225项Node回归全部通过，0失败/0跳过**；43个不同核心用例在JS/Wasm/Wasm-GC/Native各执行一次；9组JS/Native纯策略对照一致。原生仍不是HTTP客户端。
 - 严格检查/release构建、所有样例、新合成恢复演示、有界耐久层与Moon包隐私门禁通过（223项清单）；核心行覆盖 **1679/1926，约87.2%**。覆盖率不是标准认证或业务穷尽证明。

@@ -12,6 +12,8 @@
 
 本机225项Node回归、43核心×四目标、9组Native/JS对照、20轮合成耐久和两类运行包重定位验证通过。独立PocketBase/SQLite六轮功能复验通过；Windows临时数据库未能自动清理，私有保留并明确报告。模拟不是生产或真实用户试点。
 
+功能提交 `ada3a97` 已通过 [Windows / macOS / Ubuntu CI40673362956](https://github.com/bzhangui/moonapi/actions/runs/40673362956)，包括macOS签名路径限制修复；Linux另通过独立数据库、重启与哨兵核验及临时资料清理。原始私有报告不上传；完整路线仍按上方缺口说明推进。
+
 ```sh
 npm ci --ignore-scripts
 npm run build

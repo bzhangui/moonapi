@@ -6,6 +6,10 @@
 
 本机完整225 Node、43核心×四目标、9组Native/JS对照、样例及包隐私检查已通过；核心覆盖1679/1926。另有20轮合成耐久与独立PocketBase/SQLite六轮功能复验；Windows临时数据库保留、无专用进程，不冒称已清理或真实试点。旧33项包/标准5146项包及独立锁定依赖、重定位示例/工作台验证通过，均只在忽略目录；最终源提交和本轮三OS CI将在核实后单独记录。
 
+已推送的真实功能/修复提交为 `a64d93b`（加密意图/账本）、`d5d1169`（资源探索/并发核心）、`fac52a8`（实验基础/维护交付）、`2e25a32`（运行身份绑定）、`ada3a97`（签名路径规范化）。[CI40673362956](https://github.com/bzhangui/moonapi/actions/runs/40673362956) 对精确功能源码 `ada3a97c60fad47ba752ccdd48729f3bbb4df489` 三平台全部成功；每平台225 Node、43核心×四目标、9组策略对照、全部样例与两类本地包验证，Linux另完成六轮独立数据库及清理。首轮macOS失败及修复原因在QUALITY_REPORT保留，不隐藏历史。
+
+该冻结源码本地标准包5146项清单、provenance工作区clean/source_commit匹配，默认未签名，registry_published/public_runtime_uploaded均false。GitHub既有Release仍为v0.4.0；本轮没有执行注册表发布、建Release或上传运行包。文档补证为单独提交，不冒充新开发功能。
+
 ## 2026-10-27：0.5.0-rc.1 候选，仅授权源码推送
 
 本轮用户授权测试/隐私核查后推送 GitHub main；明确要求 **先验证和打包，不发布 Mooncakes / 运行包**。因此不执行 `moon publish`、不建立公开 Release 或上传资产。注册表与既有 Release 保持0.4.0，新候选能力不能用旧版下载证明。
