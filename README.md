@@ -6,7 +6,20 @@
 
 ## 已实现与用途
 
-### 当前候选源码：0.5.0-rc.1（尚未发布 Mooncakes / 运行包）
+### 当前候选源码：0.6.0-rc.1（尚未发布 Mooncakes / 运行包）
+
+新增可选加密写意图和只读对账、认证分段账本、SQLite事务fencing参考、归属图清理与覆盖反馈、递归输入缩减、MoonBit库存/计数器并发模型、显式IR迁移、适配探针、去敏诊断和可选离线签名。[0.6使用与剩余缺口](docs/UPGRADE_0_6.md) 明确哪些已实现、哪些仍待完成；**三阶段路线尚未全部完成，完整3.1/3.2执行仍未开放**。新增现代Schema/流式解码仅是实验基础，不冒称完整兼容。测试结果以[维护记录](docs/QUALITY_REPORT.md)为准。
+
+本机224项Node回归、43核心×四目标、9组Native/JS对照、20轮合成耐久和两类运行包重定位验证通过。独立PocketBase/SQLite六轮功能复验通过；Windows临时数据库未能自动清理，私有保留并明确报告。模拟不是生产或真实用户试点。
+
+```sh
+npm ci --ignore-scripts
+npm run build
+node examples/recovery-demo.mjs
+node --expose-gc scripts/soak.mjs --rounds 10
+```
+
+以下是0.5候选的历史证据，不代表新候选已通过同一次CI：
 
 功能源码 `ba88827` 已通过 [Windows / Ubuntu / macOS 三平台 CI](https://github.com/bzhangui/moonapi/actions/runs/40479096709)：每平台200项Node回归、41核心×四目标、原生对照、样例及运行包验证；Linux另通过独立PocketBase/SQLite六轮接入。属于受控验证，不是生产或真实用户效果证明。
 
@@ -20,7 +33,7 @@ node examples/safe-workflow-demo.mjs
 node bin/moonapi-workbench.mjs --demo --allow-write
 ```
 
-启动后打开终端打印的会话链接（仅监听 127.0.0.1:8791）；不要共享令牌。默认不保存配置，持久配置需要独立密钥加密。工作台使用官方 Primer CSS，不部署外部网站、不上传文档。[本轮完整指南](docs/UPGRADE_0_5.md) 覆盖 API、模型、密钥、CLI、隐私和证据边界；[版本策略](docs/VERSION_POLICY.md) 明确源码/核心包/运行包分别维护。
+启动后打开终端打印的会话链接（仅监听 127.0.0.1:8791）；不要共享令牌。默认不保存配置，持久配置需要独立密钥加密。工作台使用官方 Primer CSS，不部署外部网站、不上传文档。[0.5历史指南](docs/UPGRADE_0_5.md) 与[0.6指南](docs/UPGRADE_0_6.md)覆盖API、模型、密钥、CLI、隐私和证据边界；[版本策略](docs/VERSION_POLICY.md) 明确源码/核心包/运行包分别维护。
 
 ### 优先使用：标准状态回归与 CI（0.4.0）
 

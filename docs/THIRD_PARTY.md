@@ -8,6 +8,7 @@
 | --------------------------- | -------- | ---------- | ------------------------------------------------ |
 | @apidevtools/swagger-parser | 13.1.0   | MIT        | 文档结构校验、受控引用解析                       |
 | ajv-draft-04                | 1.0.0    | MIT        | OAS Schema 基于 Draft-04 的独立约束验证          |
+| ajv                         | 8.20.0   | MIT        | 独立进程预算内的实验性 JSON Schema 2020-12 探针；不代表完整 OAS 3.1/3.2 执行 |
 | ajv-formats                 | 3.0.1    | MIT        | 已知 format 验证；未知 format 按 OAS 回退到 type |
 | openapi-enforcer            | 1.23.0   | Apache-2.0 | 产生候选值；不作为契约裁判或全标准支持证明       |
 | yaml                        | 2.9.1    | ISC        | YAML 1.2/JSON 解析、重复键和别名预算             |

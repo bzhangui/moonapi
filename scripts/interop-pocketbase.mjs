@@ -48,7 +48,7 @@ fs.copyFileSync(
   new URL("../examples/pocketbase/migration.js", import.meta.url),
   path.join(migration, "1700000000_fixture.js"),
 );
-let child, childClosed, base, result;
+let child, childClosed, base, result, cleanupError;
 const stop = async () => {
   if (!child) return;
   if (child.exitCode === null && child.signalCode === null) child.kill();
@@ -224,15 +224,32 @@ try {
   assert.equal(path.dirname(root), parent);
   assert.ok(path.basename(root).startsWith("moonapi-pb-interop-"));
   assert.equal(fs.lstatSync(root).isSymbolicLink(), false);
-  if (!keepFixture)
-    fs.rmSync(root, {
-      recursive: true,
-      force: true,
-      maxRetries: 10,
-      retryDelay: 200,
-    });
+  if (!keepFixture) {
+    try {
+      fs.rmSync(root, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 200,
+      });
+    } catch (error) {
+      cleanupError = error;
+    }
+  }
 }
 result.temporary_process_removed = true;
-result.synthetic_fixture_retained = keepFixture;
-result.temporary_data_removed = !keepFixture;
+result.synthetic_fixture_retained = keepFixture || !!cleanupError;
+result.temporary_data_removed = !keepFixture && !cleanupError;
+if (cleanupError) {
+  // Preserve successful functional evidence, but never return an all-green
+  // exit code when cleanup failed. Do not change ACLs or escalate deletion.
+  result.functional_checks_passed = result.ok;
+  result.ok = false;
+  result.cleanup_error = ["EPERM", "EACCES", "EBUSY", "ENOTEMPTY"].includes(
+    cleanupError.code,
+  )
+    ? cleanupError.code
+    : "IO_FAILURE";
+  process.exitCode = 1;
+}
 console.log(JSON.stringify({ ...result, report: saveReport(result) }));

@@ -1,6 +1,6 @@
 {
   "name": "moonapi-tool",
-  "version": "0.5.0-rc.1",
+  "version": "0.6.0-rc.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --test --test-concurrency=4 tests/*.test.mjs",
     "validate": "node scripts/validate.mjs",
     "demo": "node examples/demo.mjs",
     "demo:behavior": "node examples/behavior-demo.mjs",
@@ -20,6 +20,7 @@
     "@primer/css": "22.3.2",
     "@primer/primitives": "11.8.1",
     "@redocly/openapi-core": "2.71.1",
+    "ajv": "8.20.0",
     "ajv-draft-04": "1.0.0",
     "ajv-formats": "3.0.1",
     "lossless-json": "4.3.3",

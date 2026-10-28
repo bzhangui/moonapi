@@ -22,6 +22,7 @@ run(process.execPath, ["scripts/build.mjs"]);
 run(process.execPath, ["scripts/policy-parity.mjs"]);
 run(process.execPath, [
   "--test",
+  "--test-concurrency=4",
   ...fs
     .readdirSync("tests")
     .filter((name) => name.endsWith(".test.mjs"))
@@ -35,6 +36,8 @@ run(process.execPath, ["examples/standard-demo.mjs"]);
 run(process.execPath, ["examples/standard-advanced-demo.mjs"]);
 run(process.execPath, ["examples/workflow-demo.mjs"]);
 run(process.execPath, ["examples/safe-workflow-demo.mjs"]);
+run(process.execPath, ["examples/recovery-demo.mjs"]);
+run(process.execPath, ["--expose-gc", "scripts/soak.mjs"]);
 run(moon, ["coverage", "clean"]);
 run(moon, ["test", "--target", "js", "--enable-coverage", "--deny-warn"]);
 run(moon, [

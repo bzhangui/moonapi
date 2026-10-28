@@ -1,5 +1,7 @@
 # MoonAPI 标准运行包
 
+0.6.0-rc.1为本地验证候选，未上传公开Release/注册表。新增安全功能与未完成项见 [在线0.6指南](https://github.com/bzhangui/moonapi/blob/main/docs/UPGRADE_0_6.md)；离线包内为 `docs/UPGRADE_0_6.md`。主引擎仍仅执行3.0，现代Schema/流式原语不代表完整3.1/3.2支持。
+
 本包包含预编译 MoonBit JS 核心、标准/状态/CI 入口、锁定安装的 Node 依赖及其原许可。需要 Node.js ≥22.19.0，不需要 MoonBit SDK；Node、Python、Schemathesis、PocketBase 不在包内。
 
 ```sh
@@ -9,6 +11,7 @@ node examples/standard-advanced-demo.mjs
 node examples/workflow-demo.mjs
 node bin/moonapi-ci.mjs discover examples/standard-spec.json
 node examples/safe-workflow-demo.mjs
+node examples/recovery-demo.mjs
 node bin/moonapi-workbench.mjs --demo --allow-write
 ```
 
