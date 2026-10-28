@@ -46,6 +46,7 @@ export class ExecutionLedger {
   #fd;
   #events = [];
   #states = new Map();
+  #identities = new Map();
   #start = performance.now();
   #closed = false;
   #bytes = 0;
@@ -116,11 +117,20 @@ export class ExecutionLedger {
       elapsed_ms: Math.max(0, Math.floor(performance.now() - this.#start)),
       previous: this.#events.at(-1)?.hash || "0".repeat(64),
     };
+    const identity = this.#identities.get(attempt);
+    if (
+      identity &&
+      ["method", "operation_alias", "step_alias"].some(
+        (k) => identity[k] !== entry[k],
+      )
+    )
+      throw new Error("LEDGER_EVENT_IDENTITY");
     entry.hash = hash(entry);
     if (this.#key)
       entry.mac = createHmac("sha256", this.#key)
         .update("MoonAPI ledger v2\0" + entry.hash)
         .digest("hex");
+    Object.freeze(entry);
     const bytes = Buffer.from(JSON.stringify(entry) + "\n");
     if (this.#bytes + bytes.length > this.#maxBytes)
       throw new Error("LEDGER_RESOURCE_BUDGET");
@@ -160,6 +170,7 @@ export class ExecutionLedger {
     this.#bytes += bytes.length;
     this.#events.push(entry);
     this.#states.set(attempt, state);
+    this.#identities.set(attempt, entry);
     return entry;
   }
   summary() {
@@ -216,10 +227,14 @@ function summarize(events) {
     receipts: rows,
   };
 }
-export async function recoverLedger(file, { authKey, expectedFinalHash } = {}) {
+export async function recoverLedger(
+  file,
+  { authKey, expectedFinalHash, expectedRunId } = {},
+) {
   return recoverText(readPrivate(file, 8388608), {
     authKey,
     expectedFinalHash,
+    expectedRunId,
   });
 }
 export async function recoverSegmentedLedger(directory, runId, options = {}) {
@@ -251,15 +266,24 @@ export async function recoverSegmentedLedger(directory, runId, options = {}) {
       throw new Error("LEDGER_CORRUPT");
     text += part;
   }
-  return { ...(await recoverText(text, options)), segments: names.length };
+  return {
+    ...(await recoverText(text, { ...options, expectedRunId: runId })),
+    segments: names.length,
+  };
 }
-async function recoverText(raw, { authKey, expectedFinalHash } = {}) {
+async function recoverText(
+  raw,
+  { authKey, expectedFinalHash, expectedRunId } = {},
+) {
   await loadCore();
   if (
     (authKey !== undefined &&
       (!Buffer.isBuffer(authKey) || authKey.length !== 32)) ||
     (expectedFinalHash !== undefined &&
-      !/^[0-9a-f]{64}$/.test(expectedFinalHash))
+      !/^[0-9a-f]{64}$/.test(expectedFinalHash)) ||
+    (expectedRunId !== undefined &&
+      (typeof expectedRunId !== "string" ||
+        !/^[a-zA-Z0-9_-]{1,96}$/.test(expectedRunId)))
   )
     throw new Error("LEDGER_AUTH_OR_CHECKPOINT");
   const lines = raw.split("\n"),
@@ -343,10 +367,13 @@ async function recoverText(raw, { authKey, expectedFinalHash } = {}) {
   }
   if (expectedFinalHash !== undefined && previous !== expectedFinalHash)
     throw new Error("LEDGER_CHECKPOINT_MISMATCH");
+  if (expectedRunId !== undefined && run !== undefined && run !== expectedRunId)
+    throw new Error("LEDGER_RUN_BINDING");
   return {
     ...summarize(entries),
     torn_tail: torn,
     final_hash: previous,
+    run_id: run ?? null,
     integrity: authKey
       ? "hmac-sha256; shared-key authentication, not a public signature"
       : "hash-chain; not a signature",

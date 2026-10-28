@@ -81,7 +81,7 @@ const report = await recoverSegmentedLedger('.local/ledgers', runId, {
 });
 ```
 
-文件名为 `RUN.jsonl`、`RUN.0001.jsonl` 等。检查缺段/乱序、格式、同一attempt身份、单调时间、状态机、哈希链、HMAC；恢复索引改为Map，避免逐条扫描先前attempt。仅最后一段不完整尾记录可作为 torn_tail 报告；中间截断拒绝。旧单文件 `recoverLedger(file)` 保留。
+文件名为 `RUN.jsonl`、`RUN.0001.jsonl` 等。检查缺段/乱序、格式、同一attempt身份、单调时间、状态机、哈希链、HMAC；分段恢复还强制绑定请求的runId，拒绝同密钥其他合法run的整份替换。写入端拒绝attempt身份漂移，返回条目冻结，恢复索引使用Map。仅最后一段不完整尾记录可作为 torn_tail 报告；中间截断拒绝。旧单文件 `recoverLedger(file)` 保留，可显式传expectedRunId固定运行身份。
 
 HMAC是**共享密钥认证，不是公钥签名**。没有独立存储的最终检查点时，完整记录/完整末段删除仍可留下合法前缀，工具明确报告该边界；不能把本地可替换的检查点当作防回滚信任根。任何恢复结果都不自动重放。
 

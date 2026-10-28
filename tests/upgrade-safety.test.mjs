@@ -221,6 +221,48 @@ test("legacy recovery rejects malformed envelopes and remains inspect only", asy
     fs.rmSync(directory, { recursive: true });
   }
 });
+test("authenticated whole-run substitution and per-attempt identity drift are rejected", async () => {
+  const directory = temporary(),
+    key = randomBytes(32),
+    original = await ExecutionLedger.open({
+      directory,
+      runId: "original",
+      authKey: key,
+    }),
+    foreign = await ExecutionLedger.open({
+      directory,
+      runId: "foreign",
+      authKey: key,
+    });
+  try {
+    const meta = { method: "POST", operation_id: "create" };
+    original.event(1, "prepared", meta);
+    assert.throws(
+      () => original.event(1, "dispatching", { ...meta, method: "DELETE" }),
+      /IDENTITY/,
+    );
+    original.close();
+    foreign.event(1, "prepared", meta);
+    foreign.close();
+    fs.copyFileSync(foreign.file, original.file);
+    await assert.rejects(
+      recoverSegmentedLedger(directory, "original", { authKey: key }),
+      /RUN_BINDING/,
+    );
+    await assert.rejects(
+      recoverLedger(original.file, { authKey: key, expectedRunId: "original" }),
+      /RUN_BINDING/,
+    );
+    assert.equal(
+      (await recoverLedger(foreign.file, { authKey: key })).run_id,
+      "foreign",
+    );
+  } finally {
+    original.close();
+    foreign.close();
+    fs.rmSync(directory, { recursive: true });
+  }
+});
 test("rotation collisions fail closed without overwriting a segment or silently switching to memory-only logging", async () => {
   const directory = temporary(),
     l = await ExecutionLedger.open({
