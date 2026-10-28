@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { ExecutionLedger } from "./execution-ledger.mjs";
+import { ExecutionLedger, journalSettings } from "./execution-ledger.mjs";
 import { saveEncryptedWitness, digestExact } from "./private-store.mjs";
 import { pointer } from "./standard-expression.mjs";
 import { documentDigest } from "./ci-tools.mjs";
@@ -450,6 +450,7 @@ export class StandardWorkflow {
       shrinkBudget = 32,
       totalTimeout = 60000,
       journalDirectory,
+      journalOptions,
       allowCleanup = false,
       witnessFile,
       witnessKey,
@@ -503,7 +504,10 @@ export class StandardWorkflow {
     this.#busy = true;
     let ledger;
     try {
-      ledger = await ExecutionLedger.open({ directory: journalDirectory });
+      ledger = await ExecutionLedger.open({
+        ...journalSettings(journalOptions),
+        directory: journalDirectory,
+      });
     } catch {
       this.#busy = false;
       throw new Error("WORKFLOW_LEDGER_OPEN");
@@ -859,26 +863,38 @@ export class StandardWorkflow {
             if (unknownWriteHalt || performance.now() >= deadline) break;
           }
           if (!model.cleanup) {
-            for (const candidate of inputCandidates(retained)) {
-              if (
-                stringifyExact(candidate).length >=
-                stringifyExact(retained).length
-              )
-                continue;
-              if (
-                unknownWriteHalt ||
-                attempts >= shrinkBudget ||
-                performance.now() >= deadline
-              )
-                break;
-              attempts++;
-              inputAttempts++;
-              const result = await run(candidate);
-              if (
-                result.category === "defect" &&
-                result.fingerprint === initial.fingerprint
-              )
-                retained = candidate;
+            let improved = true;
+            while (
+              improved &&
+              !unknownWriteHalt &&
+              attempts < shrinkBudget &&
+              performance.now() < deadline
+            ) {
+              improved = false;
+              for (const candidate of inputCandidates(retained)) {
+                if (
+                  stringifyExact(candidate).length >=
+                  stringifyExact(retained).length
+                )
+                  continue;
+                if (
+                  unknownWriteHalt ||
+                  attempts >= shrinkBudget ||
+                  performance.now() >= deadline
+                )
+                  break;
+                attempts++;
+                inputAttempts++;
+                const result = await run(candidate);
+                if (
+                  result.category === "defect" &&
+                  result.fingerprint === initial.fingerprint
+                ) {
+                  retained = candidate;
+                  improved = true;
+                  break;
+                }
+              }
             }
           }
           const final = unknownWriteHalt

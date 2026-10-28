@@ -3,6 +3,7 @@ import { portable } from "./workflow.mjs";
 import { cloneExact } from "./standard-value.mjs";
 import { pointer } from "./standard-expression.mjs";
 import { Engine } from "./runner.mjs";
+import { ExecutionLedger, journalSettings } from "./execution-ledger.mjs";
 export async function concurrentRegisterProbe(
   source,
   base,
@@ -85,6 +86,126 @@ export async function concurrentRegisterProbe(
       real_user_validation: false,
     };
   } finally {
+    await Promise.all(engines.map((e) => e.close()));
+  }
+}
+
+// Bounded counter/reservation sequential specifications are implemented in
+// MoonBit. Success/failure and returned balance are checked, not merely sums.
+export async function concurrentResourceProbe(
+  source,
+  base,
+  calls,
+  {
+    model = "reservation",
+    initial = 1,
+    capacity = 1,
+    resultPointer = "/value",
+    engineOptions = {},
+    journalDirectory,
+    journalOptions,
+  } = {},
+) {
+  if (
+    !["reservation", "counter"].includes(model) ||
+    !Number.isInteger(initial) ||
+    !Number.isInteger(capacity) ||
+    initial < 0 ||
+    initial > capacity ||
+    capacity > 1000000 ||
+    !Array.isArray(calls) ||
+    !calls.length ||
+    calls.length > 8 ||
+    typeof resultPointer !== "string" ||
+    !resultPointer.startsWith("/")
+  )
+    throw new Error("CONCURRENCY_MODEL");
+  for (const call of calls)
+    if (
+      !(
+        model === "counter" ? ["read", "add"] : ["read", "reserve", "release"]
+      ).includes(call.kind) ||
+      !Number.isInteger(call.amount ?? 0) ||
+      Math.abs(call.amount ?? 0) > 1000000 ||
+      (model === "reservation" && call.kind !== "read" && !(call.amount > 0)) ||
+      !call.request
+    )
+      throw new Error("CONCURRENCY_MODEL");
+  const engines = [];
+  let clock = 0,
+    ledger;
+  try {
+    for (const call of calls) {
+      const engine = await StandardEngine.open(source, engineOptions);
+      engines.push(engine);
+      const op = engine.description.operations.find(
+        (o) => o.id === call.request.operation_id,
+      );
+      if (
+        !op ||
+        op.callbacks.length ||
+        (!["GET", "HEAD", "OPTIONS"].includes(op.method) &&
+          engineOptions.allowWrite !== true)
+      )
+        throw new Error("CONCURRENCY_PERMISSION");
+      if (!(await engine.validateRequest(call.request)).valid)
+        throw new Error("CONCURRENCY_REQUEST");
+    }
+    new Engine("{}", { allowRemote: engineOptions.allowRemote === true }).base(
+      base,
+    );
+    ledger = await ExecutionLedger.open({
+      ...journalSettings(journalOptions),
+      directory: journalDirectory,
+    });
+    const settled = await Promise.allSettled(
+      calls.map(async (call, i) => {
+        const start = ++clock,
+          result = await engines[i].execute(base, cloneExact(call.request), {
+            expectedStatuses: [200, 201, 409, 412],
+            onEvent: (e) => ledger.event(i + 1, e.state, e),
+          }),
+          end = ++clock;
+        if (!result.record?.passed || !result.context)
+          throw new Error("CONCURRENCY_INCONCLUSIVE");
+        const observed = pointer(result.context.response.body, resultPointer);
+        if (!Number.isSafeInteger(observed))
+          throw new Error("CONCURRENCY_INTEGER");
+        return {
+          kind: call.kind,
+          amount: call.amount ?? 0,
+          observed,
+          success: result.context.status < 400,
+          start,
+          end,
+        };
+      }),
+    );
+    if (settled.some((r) => r.status !== "fulfilled"))
+      return {
+        passed: false,
+        inconclusive: true,
+        execution: ledger.summary(),
+        general_api_proof: false,
+        automatic_replay_permitted: false,
+      };
+    const history = settled.map((r) => r.value);
+    const verdict = portable("resource-history", {
+      model,
+      initial,
+      capacity,
+      history,
+    });
+    return {
+      ...verdict,
+      passed: verdict.linearizable,
+      controlled_probe: true,
+      real_user_validation: false,
+      consistency_model:
+        "bounded linearizability of a declared sequential resource model",
+    };
+  } finally {
+    ledger?.close();
     await Promise.all(engines.map((e) => e.close()));
   }
 }

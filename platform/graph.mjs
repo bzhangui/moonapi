@@ -1,13 +1,35 @@
 import { loadCore } from "./runner.mjs";
 import { portable, StandardWorkflow } from "./workflow.mjs";
 import { cloneExact } from "./standard-value.mjs";
-export async function planResourceGraph(graph, { seed = 42, limit = 32 } = {}) {
+export async function planResourceGraph(
+  graph,
+  { seed = 42, limit = 32, covered = [] } = {},
+) {
   await loadCore();
   if (graph?.version !== 2 || !Array.isArray(graph.transitions))
     throw new Error("GRAPH_IR_VERSION");
   const ids = new Set(graph.transitions.map((t) => t.id));
   if (ids.size !== graph.transitions.length) throw new Error("GRAPH_DUPLICATE");
-  if (graph.cleanup !== undefined) throw new Error("GRAPH_CLEANUP_UNSUPPORTED");
+  if (!Array.isArray(covered) || covered.some((id) => !ids.has(id)))
+    throw new Error("GRAPH_COVERAGE");
+  if (
+    graph.cleanup !== undefined &&
+    (!Array.isArray(graph.cleanup) ||
+      !graph.cleanup.length ||
+      graph.cleanup.length > 64)
+  )
+    throw new Error("GRAPH_CLEANUP");
+  const cleanupRefs = (graph.cleanup || [])
+    .flatMap((s) => [...(s.bindings || []), ...(s.ownership?.bindings || [])])
+    .map((b) => b.from);
+  if (
+    cleanupRefs.some(
+      (id) =>
+        !ids.has(id) ||
+        (graph.transitions.find((t) => t.id === id).max_visits ?? 1) !== 1,
+    )
+  )
+    throw new Error("GRAPH_CLEANUP_AMBIGUOUS");
   for (const t of graph.transitions)
     for (const k of ["requires_state", "set_state"]) {
       const m = t[k] ?? {};
@@ -27,11 +49,13 @@ export async function planResourceGraph(graph, { seed = 42, limit = 32 } = {}) {
   const metadata = graph.transitions.map((t) => ({
     id: t.id,
     max_visits: t.max_visits ?? 1,
+    campaign_visits: covered.includes(t.id) ? 1 : 0,
     requires_state: t.requires_state || {},
     set_state: t.set_state || {},
     needs: [
       ...new Set([
         ...(t.bindings || []).map((b) => b.from),
+        ...(t.ownership?.bindings || []).map((b) => b.from),
         ...(t.assertions || []).flatMap((a) =>
           [a.left, a.right]
             .filter((r) => r?.from && r.from !== t.id)
@@ -61,14 +85,29 @@ export async function planResourceGraph(graph, { seed = 42, limit = 32 } = {}) {
     t.id = instance;
     latest.set(id, instance);
     for (const b of t.bindings || []) rewrite(b);
+    for (const b of t.ownership?.bindings || []) rewrite(b);
     for (const a of t.assertions || []) {
       rewrite(a.left);
       if (a.right) rewrite(a.right);
     }
     steps.push(t);
   }
+  const cleanup = [];
+  for (const original of graph.cleanup || []) {
+    const s = cloneExact(original),
+      refs = [...(s.bindings || []), ...(s.ownership?.bindings || [])];
+    // No resource was instantiated when its producer was not selected.
+    if (refs.some((b) => !latest.has(b.from))) continue;
+    for (const b of refs) rewrite(b);
+    cleanup.push(s);
+  }
   return {
-    model: { version: 2, initial_state: graph.initial_state || {}, steps },
+    model: {
+      version: 2,
+      initial_state: graph.initial_state || {},
+      steps,
+      ...(cleanup.length ? { cleanup } : {}),
+    },
     coverage: plan,
     seed,
     limit,
@@ -79,16 +118,28 @@ export async function runGraphCampaign(
   source,
   base,
   graph,
-  { seeds = [42], limit = 32, engineOptions = {}, runOptions = {} } = {},
+  {
+    seeds = [42],
+    limit = 32,
+    engineOptions = {},
+    runOptions = {},
+    feedback = false,
+  } = {},
 ) {
   if (!Array.isArray(seeds) || !seeds.length || seeds.length > 32)
     throw new Error("GRAPH_CAMPAIGN_BUDGET");
-  if (!runOptions.allowReset || typeof runOptions.reset !== "function")
-    throw new Error("GRAPH_RESET_REQUIRED");
+  if (typeof feedback !== "boolean") throw new Error("GRAPH_FEEDBACK");
+  const reset = runOptions.allowReset && typeof runOptions.reset === "function";
+  const owned = graph.cleanup?.length > 0 && runOptions.allowCleanup === true;
+  if (!reset && !owned) throw new Error("GRAPH_RESET_REQUIRED");
   const covered = new Set(),
     reports = [];
   for (const seed of seeds) {
-    const plan = await planResourceGraph(graph, { seed, limit }),
+    const plan = await planResourceGraph(graph, {
+        seed,
+        limit,
+        covered: feedback ? [...covered] : [],
+      }),
       engine = await StandardWorkflow.open(source, { ...engineOptions, seed });
     try {
       const r = await engine.run(base, plan.model, runOptions);
@@ -115,5 +166,8 @@ export async function runGraphCampaign(
     executed_seeds: reports.length,
     truncated: reports.length !== seeds.length,
     exhaustive_state_space: false,
+    feedback: feedback
+      ? "successful-transition-coverage; bounded; not response-value learning"
+      : "off",
   };
 }

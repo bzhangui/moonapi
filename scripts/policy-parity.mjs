@@ -7,6 +7,39 @@ import { moon, moonEnv } from "./build.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 await loadCore();
 const vectors = [
+  {
+    action: "resource-history",
+    model: "reservation",
+    initial: 1,
+    capacity: 1,
+    history: [
+      {
+        kind: "reserve",
+        amount: 1,
+        observed: 0,
+        success: true,
+        start: 1,
+        end: 3,
+      },
+      {
+        kind: "reserve",
+        amount: 1,
+        observed: 0,
+        success: true,
+        start: 2,
+        end: 4,
+      },
+    ],
+  },
+  {
+    action: "resource-history",
+    model: "counter",
+    initial: 0,
+    capacity: 10,
+    history: [
+      { kind: "add", amount: 2, observed: 2, success: true, start: 1, end: 2 },
+    ],
+  },
   { action: "execution-transition", from: "sent", to: "unknown" },
   { action: "execution-transition", from: "unknown", to: "dispatching" },
   {

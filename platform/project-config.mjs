@@ -3,7 +3,16 @@ import { StandardWorkflow } from "./workflow.mjs";
 import { ownedResourceWorkflow } from "./workflow-templates.mjs";
 import { parseExact } from "./standard-value.mjs";
 import { Engine } from "./runner.mjs";
-async function readonlyDefaults(engine){const profiles=await engine.profiles();return profiles.filter(o=>['GET','HEAD','OPTIONS'].includes(o.method)&&!o.parameters.some(p=>p.required)).map(o=>o.id);}
+async function readonlyDefaults(engine) {
+  const profiles = await engine.profiles();
+  return profiles
+    .filter(
+      (o) =>
+        ["GET", "HEAD", "OPTIONS"].includes(o.method) &&
+        !o.parameters.some((p) => p.required),
+    )
+    .map((o) => o.id);
+}
 export async function inspectProject(source, options = {}) {
   const engine = await StandardEngine.open(source, options);
   try {
@@ -30,6 +39,8 @@ export async function runProject(
     allowCleanup = false,
     credentialProvider,
     journalDirectory,
+    journalOptions,
+    intentStore,
     onEngine = () => {},
   } = {},
 ) {
@@ -44,6 +55,7 @@ export async function runProject(
     allowWrite,
     allowRemote,
     credentialProvider,
+    intentStore,
     documents: input.documents ?? {},
     seed: input.seed ?? 42,
     limit: input.limit ?? 64,
@@ -56,10 +68,12 @@ export async function runProject(
   try {
     onEngine(engine);
     if (input.mode === "contract") {
-      const operationIds = input.operationIds ?? await readonlyDefaults(engine);
+      const operationIds =
+        input.operationIds ?? (await readonlyDefaults(engine));
       return await engine.runSelected(input.base, {
         operationIds,
         journalDirectory,
+        journalOptions,
       });
     }
     const model =
@@ -72,6 +86,7 @@ export async function runProject(
     return await engine.run(input.base, model, {
       allowCleanup,
       journalDirectory,
+      journalOptions,
       totalTimeout: options.totalTimeout,
     });
   } finally {

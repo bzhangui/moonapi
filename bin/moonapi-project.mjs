@@ -11,9 +11,14 @@ import { inspectProject, runProject } from "../platform/project-config.mjs";
 import { environmentCredentials } from "../platform/adapters.mjs";
 import { recoverLedger } from "../platform/execution-ledger.mjs";
 import { publicReport } from "../platform/ci-tools.mjs";
+import { diagnoseReport } from "../platform/diagnostics.mjs";
 try {
   const [action, file, ...args] = process.argv.slice(2);
-  if (action === "recover" && file && !args.length) {
+  if (action === "diagnose" && file && !args.length) {
+    console.log(
+      JSON.stringify(diagnoseReport(parseExact(readPrivate(file))), null, 2),
+    );
+  } else if (action === "recover" && file && !args.length) {
     console.log(JSON.stringify(await recoverLedger(file), null, 2));
   } else if (
     action === "init" &&

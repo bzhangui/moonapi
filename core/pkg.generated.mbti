@@ -45,6 +45,8 @@ pub fn register_history(Int, Json) -> Json raise TestError
 
 pub fn resource_graph_plan(Json, Int, Int) -> Json raise TestError
 
+pub fn resource_history(String, Int, Int, Json) -> Json raise TestError
+
 pub fn resource_state_check(Json, Json) -> Json raise TestError
 
 pub fn scenario_case(Spec, Json, Json, seed? : Int) -> Case raise TestError

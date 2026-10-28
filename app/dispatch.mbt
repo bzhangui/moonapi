@@ -3,6 +3,18 @@ fn command(input : String) -> Json raise {
   let arguments = @engine.bounded_json(input)
   let action = @engine.text(@engine.field(arguments, "action"))
   match action {
+    "resource-history" => {
+      let initial : Int32 = @json.from_json(@engine.field(arguments, "initial"))
+      let capacity : Int32 = @json.from_json(
+        @engine.field(arguments, "capacity"),
+      )
+      return @engine.resource_history(
+        @engine.text(@engine.field(arguments, "model")),
+        initial,
+        capacity,
+        @engine.field(arguments, "history"),
+      )
+    }
     "exact-decimal-relation" =>
       return Json(
         @engine.exact_decimal_relation(

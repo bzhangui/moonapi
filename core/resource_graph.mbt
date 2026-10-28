@@ -62,6 +62,10 @@ pub fn resource_graph_plan(
       raise Invalid("graph duplicate transition")
     }
     visits[id] = 0
+    let campaign = numeric(field(t, "campaign_visits"), 0.0)
+    guard campaign >= 0.0 && campaign <= 32.0 && campaign == campaign.trunc() else {
+      raise Invalid("graph campaign coverage budget")
+    }
     let maximum = numeric(field(t, "max_visits"), 1.0)
     guard maximum >= 1.0 && maximum <= 8.0 && maximum == maximum.trunc() else {
       raise Invalid("graph visit budget")
@@ -94,6 +98,7 @@ pub fn resource_graph_plan(
   for _i = 0; _i < limit; _i = _i + 1 {
     let available : Array[Json] = []
     let mut least = 1000000
+    let mut campaign_least = 1000000.0
     for t in transitions {
       let id = text(field(t, "id"))
       let mut dependencies = true
@@ -108,9 +113,17 @@ pub fn resource_graph_plan(
         if visits[id] < least {
           available.clear()
           least = visits[id]
+          campaign_least = 1000000.0
         }
         if visits[id] == least {
-          available.push(t)
+          let campaign = numeric(field(t, "campaign_visits"), 0.0)
+          if campaign < campaign_least {
+            available.clear()
+            campaign_least = campaign
+          }
+          if campaign == campaign_least {
+            available.push(t)
+          }
         }
       }
     }
