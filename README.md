@@ -20,6 +20,8 @@ npm run validate
 
 本轮完整维护结果见[测试记录](docs/QUALITY_REPORT.md)，对应源码推送/CI见[发布记录](docs/PUBLICATION.md)。新候选仅本地验证打包，不上传Mooncakes或运行包；不以旧版CI或模拟结果替代当前提交和真实用户证据。
 
+功能冻结提交 `0c8c68c` 的[本轮三平台CI](https://github.com/bzhangui/moonapi/actions/runs/40792676212)已全部通过：每平台250项Node回归、44核心×四目标、10组Native/JS对照、全部示例和两类本地包验证；Linux另完成独立PocketBase/SQLite受控接入与清理。660条现代Schema选定上游断言全过，但不是完整现代OAS执行或真实用户认证。
+
 以下为0.6候选的历史证据：
 
 新增可选加密写意图和只读对账、认证分段账本、SQLite事务fencing参考、归属图清理与覆盖反馈、递归输入缩减、MoonBit库存/计数器并发模型、显式IR迁移、适配探针、去敏诊断和可选离线签名。[0.6使用与剩余缺口](docs/UPGRADE_0_6.md) 明确哪些已实现、哪些仍待完成；**三阶段路线尚未全部完成，完整3.1/3.2执行仍未开放**。新增现代Schema/流式解码仅是实验基础，不冒称完整兼容。测试结果以[维护记录](docs/QUALITY_REPORT.md)为准。

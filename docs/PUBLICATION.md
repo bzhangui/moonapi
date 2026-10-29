@@ -8,6 +8,8 @@
 
 真实开发提交为 `cc62e1d`（MoonBit反馈策略）、`c07ab0b`（归属缩减/私有反馈与绑定修复）、`1040ea2`（现代Schema精确求值及固定上游向量）。交付/指南维护另作提交，不制造空开发记录。远端推送与本轮三OS CI在实际核实后补记；旧CI不替代新源码证据。
 
+已推送冻结交付提交 `0c8c68c1acac6f3797b2251bf45ecb6be604a5b9`，匿名README HTTP200、远端SHA匹配；[CI40792676212](https://github.com/bzhangui/moonapi/actions/runs/40792676212) Windows/macOS/Ubuntu全部成功，每平台250 Node、44核心×四目标、10组策略对照、样例/覆盖/两类本地包检查通过。Linux独立SQLite后端受控验证与清理通过，仍不是外部用户试点。冻结标准包5154项、来源clean/精确提交匹配、签名false、公开上传/注册表发布均false。GitHub Release仍为v0.4.0，本轮没有创建Release或发布Mooncakes；私人文件与原始报告不上传。
+
 ## 2026-10-28：0.6.0-rc.1 源码候选，不发布注册表/运行包
 
 用户授权测试/隐私核查后推送GitHub main，Mooncakes与运行包仅验证打包，不执行发布、创建Release或上传资产。私有申报书、凭据、执行意图、原始报告、数据库和本机配置不公开。README/指南区分本轮新增能力与尚未补齐的现代标准执行/真实环境缺口。

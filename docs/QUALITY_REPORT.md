@@ -4,6 +4,8 @@
 
 本机Windows x64 / Node24.15.0 / 项目私有moonc0.10.15，不改全局SDK。GitHub源码推送获授权；Mooncakes、Release与运行包不发布。该轮结论只覆盖本机与受控合成场景，新提交三OS CI须核实后另记，不借用0.6绿线。
 
+**远端补证**：功能冻结源码 `0c8c68c1acac6f3797b2251bf45ecb6be604a5b9` 的[CI40792676212](https://github.com/bzhangui/moonapi/actions/runs/40792676212)已核实Windows、macOS、Ubuntu全部成功。Node22 / stable moonc0.10.17；每平台250 Node、44核心×四目标、10组策略对照、660条选定上游断言、全部样例与旧33项/标准5154项包验证均通过，Linux另完成独立PocketBase/SQLite链路及清理。该源码的本地标准包provenance为clean且source_commit一致，未签名、未发布。后续仅文档补证不改变功能源码。
+
 - 冻结功能源码后完整 `node scripts/validate.mjs` **退出0：250项Node回归、0失败/0跳过**。44个不同核心用例在JS/Wasm/Wasm-GC/Native各执行一次，10组JS/Native纯策略结果一致；严格check/release build、全部计算与HTTP示例、两个新增演示及源码包隐私门禁均通过。Node测试数量包含向量执行器，不将其中660断言再重复计成660项Node测试。
 - 核心行覆盖 **1697/1945，约87.2%**，新feedback策略18/19；覆盖不是业务穷尽或规范认证。原生仅为计算/policy，不是网络客户端。
 - owned来源锁验证嵌套/Unicode标记、祖先对象删除过滤、不完整/重复/空锁拒绝、旧v1行为保留、无全局reset缩减确认、二次清理故意失败后停止后续候选/见证，以及图中唯一实例的来源锁重写。健康链无遗留资源；未确认清理不报通过，也不覆盖原始缺陷分类。
