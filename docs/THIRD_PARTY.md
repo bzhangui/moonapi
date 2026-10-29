@@ -28,6 +28,8 @@
 
 独立测试向量：`tests/vectors/draft4` 来自 JSON-Schema-Test-Suite，固定提交 `89e83a74014617ffbe79a56d83d14d054cd11417`，保留原样文件及 `tests/vectors/LICENSE`（MIT）。完整原始文件没有删减；执行器明确区分 OpenAPI 3.0 自身没有定义的 JSON Schema 词汇与适用的测试组，不能把更大的 JSON Schema 语言混称为 OpenAPI 3.0。
 
+0.7新增 `tests/vectors/draft2020-12` 同一固定提交的19份原始文件，manifest记录各文件Git blob SHA1，`.gitattributes`保留原始字节；MIT版权全文继续在 `tests/vectors/LICENSE`。184组/660断言全部执行，不跳过、不删改，不能当作整个2020-12或OAS3.1/3.2认证。Ajv负责探针的原始Schema元数据校验；项目自行实现精确十进制、离线资源特化与显式评估集合，已知格式复用ajv-formats。没有修改或复制node_modules分发代码为原创实现。
+
 上游版权和许可证全文由 npm 包的 LICENSE 等文件保留。不将 `node_modules`、上游后端二进制或数据库放进 Git/Mooncakes，也不把第三方能力冒称 MoonBit 原生实现。0.4.0 标准运行包在专用目录锁定安装依赖，保留其全部原始许可/通知文件和本清单，逐文件哈希校验。旧便携包仍仅含原三个入口，不冒称有标准层能力。Schemathesis4.32.5 仅在私有独立虚拟环境用于可选对照，不重新分发；参考工具日志可能含原始数据，不公开。
 
 规范参考：[OpenAPI 3.0.3](https://spec.openapis.org/oas/v3.0.3.html)、[Swagger Parser](https://apidevtools.com/swagger-parser/)、[Ajv](https://ajv.js.org/)、[Enforcer](https://openapi-enforcer.com/api/)。只读下载的 Petstore 定义是官方样例，不是本项目原创后端；探测脚本不保存/分发其文件，也不调用其操作。外部示例导入不是完整一致性认证。

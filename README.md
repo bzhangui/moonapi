@@ -6,7 +6,21 @@
 
 ## 已实现与用途
 
-### 当前候选源码：0.6.0-rc.1（尚未发布 Mooncakes / 运行包）
+### 当前候选源码：0.7.0-rc.1（尚未发布 Mooncakes / 运行包）
+
+本轮新增**保护归属标记的输入缩减**和**有界响应值/Schema反馈**：显式来源锁、角色/环境/文档授权，选值由MoonBit决定；缩减/确认冻结输入，清理未确认或未知写入立即停止。另修补独立2020-12 Schema探针的精确十进制、动态资源和未评估成员语义；19份固定上游文件的660个断言不删减、不跳过。[0.7使用与剩余边界](docs/UPGRADE_0_7.md)给出API、预算、可运行样例与证据范围；完整3.1/3.2执行仍未开放。
+
+```sh
+npm ci --ignore-scripts
+npm run build
+node examples/owned-reduction-demo.mjs
+node examples/feedback-demo.mjs
+npm run validate
+```
+
+本轮完整维护结果见[测试记录](docs/QUALITY_REPORT.md)，对应源码推送/CI见[发布记录](docs/PUBLICATION.md)。新候选仅本地验证打包，不上传Mooncakes或运行包；不以旧版CI或模拟结果替代当前提交和真实用户证据。
+
+以下为0.6候选的历史证据：
 
 新增可选加密写意图和只读对账、认证分段账本、SQLite事务fencing参考、归属图清理与覆盖反馈、递归输入缩减、MoonBit库存/计数器并发模型、显式IR迁移、适配探针、去敏诊断和可选离线签名。[0.6使用与剩余缺口](docs/UPGRADE_0_6.md) 明确哪些已实现、哪些仍待完成；**三阶段路线尚未全部完成，完整3.1/3.2执行仍未开放**。新增现代Schema/流式解码仅是实验基础，不冒称完整兼容。测试结果以[维护记录](docs/QUALITY_REPORT.md)为准。
 
@@ -79,7 +93,7 @@ node bin/moonapi-standard.mjs run your-openapi.yaml --base http://127.0.0.1:8080
 
 本轮补齐上一版所列的活动功能缺口。标准入口的 `full_openapi_support=true` 是按公开矩阵和测试维护的**能力声明，不是第三方认证，也不是一次采样证明全部业务无误**。`passed/complete` 另由执行数量、错误、授权和预算决定。规范没有定义的嵌套 deepObject、Cookie 歧义、空值等采用公开策略；自定义媒体使用受信任 codec 扩展，不把任意媒体冒当 JSON。Callbacks 不会擅自访问外部接收系统，响应派生/固定地址须由调用方提供可控环境与接收适配，不能自动把其 URL 改为本机地址。见 [标准矩阵](docs/OPENAPI_3_0_MATRIX.md)。
 
-当前源码版本为 **0.5.0-rc.1**；已发布版本为 **0.4.0**。Mooncakes 提供纯 MoonBit 计算/policy 核心，标准 HTTP 层从对应源码或标准运行包使用。发布与独立消费状态以 [发布记录](docs/PUBLICATION.md) 为准，不用旧版本证明新 API 已分发。旧便携档保留，标准运行包另含锁定安装的 npm 依赖及完整原许可，不包含 Node/后端二进制。
+当前源码版本为 **0.7.0-rc.1**；已发布版本为 **0.4.0**。Mooncakes 提供纯 MoonBit 计算/policy 核心，标准 HTTP 层从对应源码或标准运行包使用。发布与独立消费状态以 [发布记录](docs/PUBLICATION.md) 为准，不用旧版本证明新 API 已分发。旧便携档保留，标准运行包另含锁定安装的 npm 依赖及完整原许可，不包含 Node/后端二进制。
 
 ### 优先使用：免手写模型的资源回归
 

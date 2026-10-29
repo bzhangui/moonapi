@@ -37,6 +37,8 @@ run(process.execPath, ["examples/standard-advanced-demo.mjs"]);
 run(process.execPath, ["examples/workflow-demo.mjs"]);
 run(process.execPath, ["examples/safe-workflow-demo.mjs"]);
 run(process.execPath, ["examples/recovery-demo.mjs"]);
+run(process.execPath, ["examples/owned-reduction-demo.mjs"]);
+run(process.execPath, ["examples/feedback-demo.mjs"]);
 run(process.execPath, ["--expose-gc", "scripts/soak.mjs"]);
 run(moon, ["coverage", "clean"]);
 run(moon, ["test", "--target", "js", "--enable-coverage", "--deny-warn"]);
