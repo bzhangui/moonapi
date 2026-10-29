@@ -455,6 +455,146 @@ function styledPairs(name, value, e) {
   }
   return [[name, leaf(value)]];
 }
+// multipart keeps the Encoding key in Content-Disposition. RFC6570-style
+// serialization therefore applies to the value inside that one named part;
+// top-level array properties still produce one part per item (§4.14.5.1).
+// Percent encoding is forbidden here, so delimiter collisions have no portable
+// reversible representation and must fail rather than silently JSON-casting.
+function styledPart(name, value, encoding) {
+  const style = encoding.style ?? "form",
+    explode = encoding.explode ?? style === "form",
+    object =
+      value !== null &&
+      typeof value === "object" &&
+      !numeric(value) &&
+      !Array.isArray(value) &&
+      !Buffer.isBuffer(value) &&
+      !(value instanceof Uint8Array),
+    array = Array.isArray(value);
+  if (
+    !["form", "deepObject", "spaceDelimited", "pipeDelimited"].includes(
+      style,
+    ) ||
+    (style === "deepObject" && !object) ||
+    (["spaceDelimited", "pipeDelimited"].includes(style) && !object && !array)
+  )
+    fail("FORM_STYLE_TYPE");
+  const scalar = (item) => {
+    if (item !== null && typeof item === "object" && !numeric(item))
+      fail("FORM_STYLE_NESTED");
+    return leaf(item);
+  };
+  if (!array && !object) return scalar(value);
+  const delimiter =
+    style === "spaceDelimited" ? " " : style === "pipeDelimited" ? "|" : ",";
+  if (style === "deepObject" || (style === "form" && explode)) {
+    const pairs = object
+      ? Object.entries(value)
+      : value.map((item) => [name, item]);
+    if (pairs.length > 256) fail("FORM_PAIR_BUDGET");
+    return pairs
+      .map(([key, item]) => {
+        const text = scalar(item);
+        if (
+          /[&=]/.test(key) ||
+          text.includes("&") ||
+          (style === "deepObject" && /[\[\]]/.test(key))
+        )
+          fail("FORM_STYLE_AMBIGUOUS");
+        return (
+          (style === "deepObject" ? name + "[" + key + "]" : key) + "=" + text
+        );
+      })
+      .join("&");
+  }
+  const values = object ? Object.entries(value).flat() : value;
+  if (values.length > 512) fail("FORM_PAIR_BUDGET");
+  return values
+    .map((item) => {
+      const text = scalar(item);
+      if (text.includes(delimiter)) fail("FORM_STYLE_AMBIGUOUS");
+      return text;
+    })
+    .join(delimiter);
+}
+function styledPartCandidates(name, text, schema, encoding, options) {
+  const style = encoding.style ?? "form",
+    explode = encoding.explode ?? style === "form",
+    s = mediaSchema(schema, undefined, options),
+    t = wireType(s),
+    delimiter =
+      style === "spaceDelimited" ? " " : style === "pipeDelimited" ? "|" : ",";
+  if (
+    !["form", "deepObject", "spaceDelimited", "pipeDelimited"].includes(style)
+  )
+    fail("FORM_STYLE");
+  let tokens = text.split(delimiter),
+    pairs;
+  if (style === "deepObject" || (style === "form" && explode)) {
+    const expanded = text === "" ? [] : text.split("&");
+    if (expanded.length > 256) fail("FORM_PAIR_BUDGET");
+    pairs = expanded.map((part) => {
+      const at = part.indexOf("=");
+      return at < 0 ? undefined : [part.slice(0, at), part.slice(at + 1)];
+    });
+    if (pairs.some((pair) => !pair)) pairs = undefined;
+    if (style === "deepObject" && pairs)
+      pairs = pairs.map(([key, value]) =>
+        key.startsWith(name + "[") &&
+        key.endsWith("]") &&
+        !/[\[\]]/.test(key.slice(name.length + 1, -1))
+          ? [key.slice(name.length + 1, -1), value]
+          : undefined,
+      );
+    if (pairs?.some((pair) => !pair)) pairs = undefined;
+    tokens =
+      style === "form" && pairs?.every(([key]) => key === name)
+        ? pairs.map(([, value]) => value)
+        : [];
+  } else if (tokens.length % 2 === 0) {
+    pairs = [];
+    for (let i = 0; i < tokens.length; i += 2)
+      pairs.push([tokens[i], tokens[i + 1]]);
+  }
+  if (tokens.length > 512 || pairs?.length > 256) fail("FORM_PAIR_BUDGET");
+  const arrays =
+    style === "deepObject"
+      ? []
+      : combinations(
+          tokens.map((value, i) => [
+            i,
+            modernWireCandidates(s.prefixItems?.[i] ?? s.items, value, options),
+          ]),
+          true,
+        );
+  if (text === "") arrays.unshift([]);
+  const objects =
+    pairs && new Set(pairs.map(([key]) => key)).size === pairs.length
+      ? combinations(
+          pairs.map(([key, value]) => [
+            key,
+            modernWireCandidates(property(s, key), value, options),
+          ]),
+        )
+      : [];
+  if (text === "") objects.unshift({});
+  const primitives =
+    style === "form" ? modernWireCandidates(schema, text, options) : [];
+  const ordered =
+      t === "array"
+        ? [...arrays, ...primitives, ...objects]
+        : t === "object"
+          ? [...objects, ...primitives, ...arrays]
+          : [...primitives, ...arrays, ...objects],
+    candidates = ordered.filter(
+      (value) => !options.validate || validates(options, schema ?? true, value),
+    );
+  Object.defineProperty(candidates, "truncated", {
+    value: arrays.truncated || objects.truncated,
+  });
+  if (!candidates.length) chooseModernWire(schema, candidates, options);
+  return candidates;
+}
 function defaultMedia(schema, value, options) {
   const s = mediaSchema(schema, value, options),
     t = wireType(s, value);
@@ -654,6 +794,8 @@ function multipartParts(media, value, content, options, state) {
       });
   const parts = [];
   for (const p of specs) {
+    if (parts.length >= checkBudget(options, state).maxItems)
+      fail("MULTIPART_PART_BUDGET");
     if (++state.shared.parts > 256) fail("MULTIPART_PART_BUDGET");
     if (
       positional &&
@@ -663,22 +805,38 @@ function multipartParts(media, value, content, options, state) {
       fail("SEQUENCE_ITEM_SCHEMA");
     const ps = mediaSchema(p.schema, p.value, options),
       e = p.encoding;
-    const mt = pickMedia(e, ps, p.value, p.path, options);
-    const encoded =
-      styled(e) && base(media) === "multipart/form-data"
-        ? { body: Buffer.from(leaf(p.value)), contentType: "text/plain" }
-        : encodeInner(
-            mt,
-            p.value,
-            {
-              schema: ps,
-              encoding: e.encoding,
-              prefixEncoding: e.prefixEncoding,
-              itemEncoding: e.itemEncoding,
-            },
-            options,
-            { ...state, depth: state.depth + 1, path: p.path },
-          );
+    const styledForm = styled(e) && base(media) === "multipart/form-data",
+      mt = styledForm
+        ? "text/plain"
+        : pickMedia(e, ps, p.value, p.path, options);
+    const encoded = styledForm
+      ? {
+          body: Buffer.from(
+            styledPart(
+              p.name ?? p.defaultName ?? String(parts.length),
+              p.value,
+              e,
+            ),
+          ),
+          contentType: "text/plain",
+        }
+      : encodeInner(
+          mt,
+          p.value,
+          {
+            schema: ps,
+            encoding: e.encoding,
+            prefixEncoding: e.prefixEncoding,
+            itemEncoding: e.itemEncoding,
+          },
+          options,
+          { ...state, depth: state.depth + 1, path: p.path },
+        );
+    if (
+      styledForm &&
+      encoded.body.length > checkBudget(options, state).maxItemBytes
+    )
+      fail("SEQUENCE_RECORD_BUDGET");
     const headers = { "content-type": encoded.contentType };
     for (const [name, h] of Object.entries(e.headers ?? {})) {
       const k = name.toLowerCase();
@@ -777,6 +935,17 @@ function openingBoundary(bytes, marker, final = true) {
   }
   return undefined;
 }
+function multipartPositional(media, schema, content) {
+  if (
+    content.prefixEncoding !== undefined ||
+    content.itemEncoding !== undefined ||
+    wireType(schema) === "array"
+  )
+    return true;
+  // Optional legacy named-part workaround for non-form multipart is explicit:
+  // without a named encoding map, non-form content remains an ordered array.
+  return base(media) !== "multipart/form-data" && !content.encoding;
+}
 function parseMultipart(media, bytes, content, options, state) {
   const b = /(?:^|;)\s*boundary=(?:"([^"\r\n]+)"|([^;\s]+))/i.exec(media),
     boundary = b?.[1] ?? b?.[2];
@@ -784,12 +953,9 @@ function parseMultipart(media, bytes, content, options, state) {
   const marker = Buffer.from("--" + boundary),
     delimiter = Buffer.from("\r\n--" + boundary),
     s = mediaSchema(content.schema, undefined, options);
-  const positional =
-    base(media) !== "multipart/form-data" ||
-    wireType(s) === "array" ||
-    content.prefixEncoding !== undefined ||
-    content.itemEncoding !== undefined;
-  const output = positional ? [] : {};
+  const positional = multipartPositional(media, s, content);
+  const output = positional ? [] : {},
+    variants = [];
   let opening = openingBoundary(bytes, marker),
     closed = false;
   if (!opening) fail("MULTIPART_FRAMING");
@@ -817,6 +983,7 @@ function parseMultipart(media, bytes, content, options, state) {
       split < 0 ||
       split > end ||
       split - at > 16384 ||
+      index >= checkBudget(options, state).maxItems ||
       ++state.shared.parts > 256
     )
       fail("MULTIPART_PART_BUDGET");
@@ -865,7 +1032,10 @@ function parseMultipart(media, bytes, content, options, state) {
         {})
       : (content.encoding?.[name] ?? {});
     const mt = headers["content-type"] ?? defaultMedia(p, undefined, options);
+    const styledForm =
+      styled(encoding) && base(media) === "multipart/form-data";
     if (
+      !styledForm &&
       encoding.contentType &&
       !mediaChoices(encoding.contentType).some((r) => matchesMedia(r, mt))
     )
@@ -878,25 +1048,44 @@ function parseMultipart(media, bytes, content, options, state) {
     )
       fail("PART_TRANSFER_ENCODING_CONFLICT");
     validateHeaders(encoding, headers, options);
-    const value =
-      styled(encoding) && base(media) === "multipart/form-data"
-        ? cast(p, utf8(bytes.subarray(split + 4, end)), options)
-        : decodeInner(
-            mt,
-            bytes.subarray(split + 4, end),
-            {
-              schema: p,
-              encoding: encoding.encoding,
-              prefixEncoding: encoding.prefixEncoding,
-              itemEncoding: encoding.itemEncoding,
-            },
-            options,
-            {
-              ...state,
-              depth: state.depth + 1,
-              path: state.path + "/" + (name ?? index),
-            },
-          );
+    if (
+      styledForm &&
+      end - split - 4 > checkBudget(options, state).maxItemBytes
+    )
+      fail("SEQUENCE_RECORD_BUDGET");
+    const choices = styledForm
+      ? styledPartCandidates(
+          name ?? String(options._partIndex ?? index),
+          utf8(bytes.subarray(split + 4, end)),
+          p,
+          encoding,
+          options,
+        )
+      : undefined;
+    const value = styledForm
+      ? choices[0]
+      : decodeInner(
+          mt,
+          bytes.subarray(split + 4, end),
+          {
+            schema: p,
+            encoding: encoding.encoding,
+            prefixEncoding: encoding.prefixEncoding,
+            itemEncoding: encoding.itemEncoding,
+          },
+          options,
+          {
+            ...state,
+            depth: state.depth + 1,
+            path: state.path + "/" + (name ?? index),
+          },
+        );
+    variants.push({
+      name,
+      index,
+      choices: choices ?? [value],
+      array: !positional && wireType(inspected) === "array",
+    });
     if (positional) output.push(value);
     else if (wireType(inspected) === "array") {
       if (!has(output, name)) setOwn(output, name, []);
@@ -909,7 +1098,42 @@ function parseMultipart(media, bytes, content, options, state) {
     opening = next;
   }
   if (!closed) fail("MULTIPART_TRUNCATED");
-  return output;
+  if (
+    options._deferStyledParent ||
+    !variants.some((part) => part.choices.length > 1 || part.choices.truncated)
+  )
+    return output;
+  let candidates,
+    truncated = variants.some((part) => part.choices.truncated);
+  if (positional)
+    candidates = combinations(
+      variants.map((part) => [part.index, part.choices]),
+      true,
+    );
+  else {
+    const groups = new Map();
+    for (const part of variants) {
+      if (!groups.has(part.name)) groups.set(part.name, []);
+      groups.get(part.name).push(part);
+    }
+    const fields = [];
+    for (const [key, parts] of groups) {
+      const list =
+        parts.length > 1 || parts[0].array
+          ? combinations(
+              parts.map((part, i) => [i, part.choices]),
+              true,
+            )
+          : parts[0].choices;
+      truncated ||= list.truncated;
+      fields.push([key, list]);
+    }
+    candidates = combinations(fields);
+  }
+  return chooseModernWire(content.schema ?? true, candidates, {
+    ...options,
+    wireCandidatesTruncated: truncated || candidates.truncated,
+  });
 }
 class SequenceParser {
   constructor(media, content, options) {
@@ -1686,12 +1910,17 @@ class MultipartStreamParser {
     this.closed = false;
     this.shared = { parts: 0 };
     this.schema = mediaSchema(content.schema, undefined, options);
-    this.positional =
-      base(media) !== "multipart/form-data" ||
-      wireType(this.schema) === "array" ||
-      content.prefixEncoding !== undefined ||
-      content.itemEncoding !== undefined;
+    this.positional = multipartPositional(media, this.schema, content);
     this.value = this.positional ? [] : {};
+    this.rawStyledParts =
+      base(media) === "multipart/form-data" &&
+      [
+        ...Object.values(content.encoding ?? {}),
+        ...(content.prefixEncoding ?? []),
+        ...(content.itemEncoding ? [content.itemEncoding] : []),
+      ].some(styled)
+        ? []
+        : undefined;
   }
   part(bytes) {
     if (
@@ -1725,11 +1954,19 @@ class MultipartStreamParser {
       this.marker,
       Buffer.from("--\r\n"),
     ]);
-    const parsed = decodeInner(this.media, framed, content, this.options, {
-      depth: 0,
-      path: "",
-      shared: this.shared,
-    });
+    const parsed = decodeInner(
+      this.media,
+      framed,
+      content,
+      this.rawStyledParts
+        ? { ...this.options, _deferStyledParent: true, _partIndex: index }
+        : this.options,
+      {
+        depth: 0,
+        path: "",
+        shared: this.shared,
+      },
+    );
     const item = this.positional ? parsed[0] : parsed;
     if (
       this.positional &&
@@ -1737,7 +1974,8 @@ class MultipartStreamParser {
       !validates(this.options, this.content.itemSchema, item)
     )
       fail("SEQUENCE_ITEM_SCHEMA");
-    this.options.onItem?.(item, index);
+    if (this.rawStyledParts) this.rawStyledParts.push(Buffer.from(bytes));
+    else this.options.onItem?.(item, index);
     this.items.push(item);
     if (this.positional) this.value.push(item);
     else
@@ -1790,11 +2028,64 @@ class MultipartStreamParser {
   }
   finish() {
     if (!this.closed) fail("MULTIPART_TRUNCATED");
+    if (this.rawStyledParts) {
+      const raw = Buffer.concat([
+        ...this.rawStyledParts.flatMap((part) => [
+          this.marker,
+          Buffer.from("\r\n"),
+          part,
+          Buffer.from("\r\n"),
+        ]),
+        this.marker,
+        Buffer.from("--\r\n"),
+      ]);
+      this.value = parseMultipart(this.media, raw, this.content, this.options, {
+        depth: 0,
+        path: "",
+        shared: { parts: 0 },
+      });
+      if (this.positional) this.items = [...this.value];
+      else {
+        const totals = new Map(),
+          positions = new Map();
+        for (const item of this.items)
+          for (const key of Object.keys(item))
+            totals.set(key, (totals.get(key) ?? 0) + 1);
+        this.items = this.items.map((item) => {
+          const resolved = {};
+          for (const key of Object.keys(item)) {
+            const at = positions.get(key) ?? 0,
+              array =
+                wireType(
+                  mediaSchema(
+                    property(this.schema, key),
+                    undefined,
+                    this.options,
+                  ),
+                ) === "array";
+            setOwn(
+              resolved,
+              key,
+              array
+                ? [this.value[key][at]]
+                : totals.get(key) > 1
+                  ? this.value[key][at]
+                  : this.value[key],
+            );
+            positions.set(key, at + 1);
+          }
+          return resolved;
+        });
+      }
+      this.rawStyledParts.length = 0;
+    }
     if (
       this.content.schema !== undefined &&
       !validates(this.options, this.content.schema, this.value)
     )
       fail("MEDIA_SCHEMA");
+    if (this.rawStyledParts)
+      this.items.forEach((item, index) => this.options.onItem?.(item, index));
     return { value: this.value, items: this.items, complete: true };
   }
 }
@@ -1895,6 +2186,7 @@ export function createModernStreamParser(media, content = {}, options = {}) {
     itemCount = parser.items.length;
     parser.buffer = multipart ? Buffer.alloc(0) : "";
     parser.items = [];
+    if (parser.rawStyledParts) parser.rawStyledParts.length = 0;
     if ("value" in parser) parser.value = undefined;
     if ("data" in parser) parser.data = [];
   };

@@ -14,6 +14,7 @@ import {
   decodeModernCookie,
   decodeSetCookieHeader,
   encodeSetCookieHeader,
+  decodeModernStream,
 } from "../platform/modern-media.mjs";
 import {
   equal,
@@ -496,6 +497,77 @@ test("Cookie parent constraints choose valid union elements instead of greedily 
   assert.throws(
     () => decodeModernCookie(p, "values=word", array.options),
     /MODERN_WIRE_VALUE_CONTRACT$/,
+  );
+});
+
+test("styled multipart decoding rechecks the parent Schema across repeated union item and object property coercions", async () => {
+  const { schema, options } = await toolsFor({
+      type: "object",
+      required: ["rows"],
+      properties: {
+        rows: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { n: { type: ["string", "integer"] } },
+            required: ["n"],
+          },
+          contains: { properties: { n: { type: "integer" } } },
+          minContains: 1,
+        },
+      },
+      const: { rows: [{ n: 1 }, { n: "2" }] },
+    }),
+    content = {
+      schema,
+      encoding: {
+        rows: { style: "form", explode: false, contentType: "multipart/mixed" },
+      },
+    },
+    value = { rows: [{ n: 1 }, { n: "2" }] },
+    encoded = encodeModernMedia("multipart/form-data", value, content, options);
+  same(
+    decodeModernMedia(encoded.contentType, encoded.body, content, options),
+    value,
+  );
+  const streamed = await decodeModernStream(
+    (async function* () {
+      for (let at = 0; at < encoded.body.length; at += 7)
+        yield encoded.body.subarray(at, at + 7);
+    })(),
+    { media: encoded.contentType, content, ...options },
+  );
+  same(streamed.value, value);
+  same(streamed.items, [{ rows: [{ n: 1 }] }, { rows: [{ n: "2" }] }]);
+  const exhausted = await toolsFor({
+      type: "object",
+      required: ["values"],
+      properties: {
+        values: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { n: { type: ["string", "integer"] } },
+            required: ["n"],
+          },
+          contains: { properties: { n: { type: "integer" } } },
+          minContains: 7,
+        },
+      },
+    }),
+    c = {
+      schema: exhausted.schema,
+      encoding: { values: { style: "form", explode: false } },
+    },
+    wire = encodeModernMedia(
+      "multipart/form-data",
+      { values: Array.from({ length: 7 }, () => ({ n: "1" })) },
+      c,
+      exhausted.options,
+    );
+  assert.throws(
+    () => decodeModernMedia(wire.contentType, wire.body, c, exhausted.options),
+    /MODERN_WIRE_COERCION_BUDGET$/,
   );
 });
 

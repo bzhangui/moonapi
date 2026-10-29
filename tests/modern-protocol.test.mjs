@@ -928,3 +928,257 @@ test("quoted MIME parameter commas and legal spaced boundaries remain distinct f
     ["value"],
   );
 });
+
+test("multipart explicit styles ignore contentType and child encodings while keeping MIME field ownership and literal percent bytes", () => {
+  for (const [style, explode, value, expected] of [
+    [
+      "form",
+      false,
+      { inner: "ok%2C+中文", count: 2 },
+      "inner,ok%2C+中文,count,2",
+    ],
+    [
+      "form",
+      true,
+      { inner: "ok%2C+中文", count: 2 },
+      "inner=ok%2C+中文&count=2",
+    ],
+    [
+      "deepObject",
+      true,
+      { inner: "ok%2C+中文", count: 2 },
+      "present[inner]=ok%2C+中文&present[count]=2",
+    ],
+    [
+      "spaceDelimited",
+      false,
+      { inner: "ok%2C+中文", count: 2 },
+      "inner ok%2C+中文 count 2",
+    ],
+    [
+      "pipeDelimited",
+      false,
+      { inner: "ok%2C+中文", count: 2 },
+      "inner|ok%2C+中文|count|2",
+    ],
+  ]) {
+    const content = {
+      schema: {
+        type: "object",
+        properties: {
+          present: {
+            type: "object",
+            properties: {
+              inner: { type: "string" },
+              count: { type: "integer" },
+            },
+          },
+        },
+      },
+      encoding: {
+        present: {
+          contentType: "multipart/mixed",
+          style,
+          explode,
+          allowReserved: false,
+          encoding: {
+            inner: { headers: { Ignored: { required: true, schema: false } } },
+          },
+        },
+      },
+    };
+    const result = roundtrip(
+      "multipart/form-data",
+      { present: value },
+      content,
+    );
+    assert.ok(result.body.includes(Buffer.from(expected)), style);
+    assert.match(result.body.toString(), /name="present"/);
+    assert.match(result.body.toString(), /content-type: text\/plain/);
+    assert.doesNotMatch(result.body.toString(), /Ignored|multipart\/mixed/);
+    same(result.decoded, { present: value });
+  }
+});
+
+test("multipart named array properties stay repeated parts and positional arrays use their own style without percent escaping", async () => {
+  const content = {
+      schema: {
+        type: "object",
+        properties: {
+          values: { type: "array", items: { type: "integer" } },
+          literal: { type: "string" },
+        },
+      },
+      encoding: {
+        values: { style: "form", explode: false },
+        literal: { allowReserved: true },
+      },
+    },
+    result = roundtrip(
+      "multipart/form-data",
+      { values: [1, 2], literal: "a&b,=%2C+中文" },
+      content,
+    );
+  assert.equal(
+    (result.body.toString().match(/name="values"/g) ?? []).length,
+    2,
+  );
+  same(result.decoded, { values: [1, 2], literal: "a&b,=%2C+中文" });
+  for (const [style, explode, expected] of [
+    ["form", false, "1,2"],
+    ["form", true, "0=1&0=2"],
+    ["spaceDelimited", false, "1 2"],
+    ["pipeDelimited", false, "1|2"],
+  ]) {
+    const c = {
+        schema: {
+          type: "array",
+          items: { type: "array", items: { type: "integer" } },
+        },
+        itemEncoding: { style, explode, contentType: "application/xml" },
+      },
+      r = roundtrip("multipart/form-data", [[1, 2]], c);
+    assert.ok(r.body.includes(Buffer.from(expected)), style);
+    same(r.decoded, [[1, 2]]);
+    const multiple = roundtrip(
+      "multipart/form-data",
+      [
+        [1, 2],
+        [3, 4],
+      ],
+      c,
+    );
+    same(multiple.decoded, [
+      [1, 2],
+      [3, 4],
+    ]);
+    same(
+      (
+        await decodeModernStream(
+          (async function* () {
+            yield multiple.body;
+          })(),
+          { media: multiple.contentType, content: c },
+        )
+      ).value,
+      [
+        [1, 2],
+        [3, 4],
+      ],
+    );
+  }
+});
+
+test("multipart style delimiters, undefined nested values and budgets fail explicitly instead of JSON fallback", () => {
+  const content = {
+    schema: {
+      type: "object",
+      properties: {
+        field: { type: "object", properties: { key: { type: "string" } } },
+      },
+    },
+    encoding: { field: { style: "form", explode: false } },
+  };
+  assert.throws(
+    () =>
+      encodeModernMedia(
+        "multipart/form-data",
+        { field: { key: "a,b" } },
+        content,
+      ),
+    /FORM_STYLE_AMBIGUOUS/,
+  );
+  assert.throws(
+    () =>
+      encodeModernMedia(
+        "multipart/form-data",
+        { field: { key: { nested: true } } },
+        content,
+      ),
+    /FORM_STYLE_NESTED/,
+  );
+  assert.throws(
+    () =>
+      encodeModernMedia(
+        "multipart/form-data",
+        { field: { key: "12345" } },
+        content,
+        { maxItemBytes: 3 },
+      ),
+    /RECORD_BUDGET/,
+  );
+  const encoded = encodeModernMedia(
+    "multipart/form-data",
+    { field: { key: "12345" } },
+    content,
+  );
+  assert.throws(
+    () =>
+      decodeModernMedia(encoded.contentType, encoded.body, content, {
+        maxItemBytes: 3,
+      }),
+    /RECORD_BUDGET/,
+  );
+  assert.throws(
+    () =>
+      encodeModernMedia(
+        "multipart/form-data",
+        { field: { key: "ok" }, another: "v" },
+        content,
+        { maxItems: 1 },
+      ),
+    /PART_BUDGET/,
+  );
+});
+
+test("explicit named multipart mixed workaround round-trips repeated object items but ignores query style outside form-data", () => {
+  const content = {
+      schema: {
+        type: "object",
+        properties: {
+          values: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { inner: { type: "string" } },
+            },
+          },
+        },
+      },
+      encoding: {
+        values: {
+          contentType: "multipart/mixed",
+          encoding: {
+            inner: {
+              contentType: "text/plain",
+              style: "deepObject",
+              headers: {
+                Required: {
+                  required: true,
+                  schema: { type: "integer", const: 7 },
+                  example: 7,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    value = { values: [{ inner: "one" }, { inner: "two" }] },
+    result = roundtrip("multipart/form-data", value, content, {
+      validate: simpleValidate,
+    });
+  same(result.decoded, value);
+  assert.equal((result.body.toString().match(/required: 7/gi) ?? []).length, 2);
+  const outside = {
+    schema: { type: "array", items: { type: "object" } },
+    itemEncoding: {
+      contentType: "application/json",
+      style: "deepObject",
+      explode: false,
+    },
+  };
+  same(roundtrip("multipart/mixed", [{ raw: "a,b&c%2C" }], outside).decoded, [
+    { raw: "a,b&c%2C" },
+  ]);
+});

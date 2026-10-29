@@ -516,7 +516,71 @@ test("inapplicable or absent Encoding mappings never evaluate or generate ignore
     } finally {
       await nestedEngine.close();
     }
-    assert.equal(received.length, 4);
+    const styled = JSON.parse(nestedSource);
+    const part =
+      styled.paths["/items"].post.requestBody.content["multipart/form-data"]
+        .encoding.present;
+    part.contentType = "multipart/mixed";
+    part.style = "form";
+    part.explode = false;
+    const styledEngine = await StandardEngine.open(JSON.stringify(styled), {
+      allowWrite: true,
+    });
+    try {
+      const result = await styledEngine.execute(
+        `http://127.0.0.1:${fixture.address().port}`,
+        {
+          operation_id: "items",
+          parameters: [],
+          media: "multipart/form-data",
+          body: { present: { inner: "ok" } },
+          negative: false,
+        },
+      );
+      assert.equal(result.record?.passed, true, JSON.stringify(result));
+      assert.match(received.at(-1), /content-type: text\/plain/i);
+      assert.doesNotMatch(received.at(-1), /IgnoredJSONHeader/);
+    } finally {
+      await styledEngine.close();
+    }
+    const repeated = JSON.parse(nestedSource);
+    const repeatedContent =
+      repeated.paths["/items"].post.requestBody.content["multipart/form-data"];
+    const item = repeatedContent.schema.properties.present;
+    repeatedContent.schema.properties.present = { type: "array", items: item };
+    repeatedContent.encoding.present.contentType = "multipart/mixed";
+    repeatedContent.encoding.present.encoding.inner = {
+      contentType: "text/plain",
+      headers: {
+        RepeatedNested: {
+          required: true,
+          schema: { type: "integer", const: 7 },
+        },
+      },
+    };
+    const repeatedEngine = await StandardEngine.open(JSON.stringify(repeated), {
+      allowWrite: true,
+    });
+    try {
+      const result = await repeatedEngine.execute(
+        `http://127.0.0.1:${fixture.address().port}`,
+        {
+          operation_id: "items",
+          parameters: [],
+          media: "multipart/form-data",
+          body: { present: [{ inner: "first" }, { inner: "second" }] },
+          negative: false,
+        },
+      );
+      assert.equal(result.record?.passed, true, JSON.stringify(result));
+      assert.equal(
+        (received.at(-1).match(/repeatednested: 7/gi) ?? []).length,
+        2,
+      );
+    } finally {
+      await repeatedEngine.close();
+    }
+    assert.equal(received.length, 6);
     assert.equal(
       received.some((text) => /Hidden|FormIgnored/.test(text)),
       false,
@@ -554,7 +618,12 @@ test("positional nested multipart requests generate required headers for active 
     prefixEncoding: [
       {
         contentType: "multipart/mixed",
+        style: "form", // ignored under multipart/mixed; nested MIME stays active
         headers: {
+          OptionalImpossible: { schema: false },
+          OptionalUnsafe: {
+            schema: { type: "string", const: "synthetic\nline" },
+          },
           Outer: {
             required: true,
             schema: { type: "string", pattern: "^[A-Z]{3}$" },
@@ -629,9 +698,48 @@ test("positional nested multipart requests generate required headers for active 
     assert.match(raw, /second: (?:true|false)\r\n/);
     assert.match(raw, /tail: tail-[0-9]\r\n/);
     assert.equal(/Absent(?:Nested|Root|Remaining)/.test(raw), false);
+    assert.doesNotMatch(raw, /optionalimpossible/i);
+    assert.doesNotMatch(raw, /optionalunsafe/i);
   } finally {
     await engine?.close();
     fixture.closeAllConnections();
     await new Promise((resolve) => fixture.close(resolve));
   }
+});
+
+test("optional unsatisfiable parameters and bodies keep their valid absence plans; required variants remain blocked", async () => {
+  for (const kind of ["parameter", "body"])
+    for (const required of [false, true]) {
+      const op = { operationId: "optional", responses: response };
+      if (kind === "parameter")
+        op.parameters = [
+          { name: "optional", in: "query", required, schema: false },
+        ];
+      else
+        op.requestBody = {
+          required,
+          content: { "application/json": { schema: false } },
+        };
+      const engine = await StandardEngine.open(
+        document("3.2.1", { "/optional": { post: op } }),
+        { allowWrite: true },
+      );
+      try {
+        const plan = await engine.plan();
+        if (required) {
+          assert.equal(plan.cases.length, 0);
+          assert.ok(plan.blockers.length > 0);
+        } else {
+          assert.equal(plan.blockers.length, 0);
+          assert.ok(plan.cases.length > 0);
+          for (const c of plan.cases) {
+            assert.equal(c.parameters.length, 0);
+            assert.equal(Object.hasOwn(c, "body"), false);
+            assert.equal((await engine.validateRequest(c)).valid, true);
+          }
+        }
+      } finally {
+        await engine.close();
+      }
+    }
 });

@@ -648,16 +648,31 @@ function variants({ id, seed }) {
   const record = operations.get(id);
   if (!record) fail("STANDARD_UNKNOWN_OPERATION");
   const { op } = record;
-  const parameters = op.allParameters.map((p) => ({
-    name: p.name,
-    in: p.in,
-    value: sample(p.schema, parameterExamples(p), seed),
-  }));
+  const parameters = op.allParameters.flatMap((p) => {
+    try {
+      return [
+        {
+          name: p.name,
+          in: p.in,
+          value: sample(p.schema, parameterExamples(p), seed),
+        },
+      ];
+    } catch (error) {
+      if (p.required) throw error;
+      return [];
+    }
+  });
   const bodies = Object.keys(op.requestBody?.content ?? {});
   const out = [];
   for (const media of bodies.length ? bodies : [null]) {
     const content = op.requestBody?.content[media];
-    const value = media ? sampleContent(content, media, seed) : undefined;
+    let value;
+    try {
+      value = media ? sampleContent(content, media, seed) : undefined;
+    } catch (error) {
+      if (op.requestBody.required) throw error;
+      continue;
+    }
     const positive = {
       operation_id: id,
       parameters,
@@ -740,6 +755,7 @@ function variants({ id, seed }) {
       const original = parameters.find(
         (x) => x.in === p.in && x.name === p.name,
       );
+      if (!original) continue;
       for (const candidate of boundaryValues(p.schema, original.value).slice(
         0,
         16,
@@ -984,6 +1000,7 @@ function wireRequest({ id, test }) {
     values,
     depth = 0,
     nested = /^multipart\//i.test(e.contentType ?? ""),
+    parentMedia = "",
   ) {
     if (depth > 8) fail("MODERN_MIME_DEPTH_BUDGET");
     const copy = { ...e, headers: { ...e.headers } };
@@ -993,23 +1010,39 @@ function wireRequest({ id, test }) {
       copy.headers[name] = h;
       const mt = Object.keys(h.content || {})[0],
         rule = h.schema ?? h.content?.[mt]?.schema;
-      const value = sample(rule, exampleValues(h), 42, "write");
-      h.example = value;
-      h.__wireValue = serializeParameter(
-        {
-          ...h,
-          name,
-          in: "header",
-          schema: modernPrepared ? modernTools.shape(rule, value) : rule,
-          content: mt,
-          contentDefinition: h.content,
-          modern: !!modernPrepared,
-        },
-        value,
-        mediaOptions(),
-      )[1];
+      let value;
+      try {
+        value = sample(rule, exampleValues(h), 42, "write");
+        h.example = value;
+        h.__wireValue = serializeParameter(
+          {
+            ...h,
+            name,
+            in: "header",
+            schema: modernPrepared ? modernTools.shape(rule, value) : rule,
+            content: mt,
+            contentDefinition: h.content,
+            modern: !!modernPrepared,
+          },
+          value,
+          mediaOptions(),
+        )[1];
+      } catch (error) {
+        if (h.required) throw error;
+        delete copy.headers[name];
+        continue;
+      }
     }
+    if (
+      parentMedia === "multipart/form-data" &&
+      ["style", "explode", "allowReserved"].some((k) => Object.hasOwn(e, k))
+    )
+      nested = false;
     if (!nested) return copy;
+    const ownMedia = String(depth === 0 ? test.media : (e.contentType ?? ""))
+      .split(/[;,]/)[0]
+      .trim()
+      .toLowerCase();
     if (e.encoding)
       copy.encoding = Object.fromEntries(
         Object.entries(e.encoding).map(([k, v]) => {
@@ -1017,10 +1050,12 @@ function wireRequest({ id, test }) {
             .filter(
               (x) => x !== null && typeof x === "object" && Object.hasOwn(x, k),
             )
-            .map((x) => x[k]);
+            .flatMap((x) => (Array.isArray(x[k]) ? x[k] : [x[k]]));
           return [
             k,
-            active.length ? preparedEncoding(v, active, depth + 1) : v,
+            active.length
+              ? preparedEncoding(v, active, depth + 1, undefined, ownMedia)
+              : v,
           ];
         }),
       );
@@ -1029,14 +1064,22 @@ function wireRequest({ id, test }) {
         const active = values
           .filter((x) => Array.isArray(x) && i < x.length)
           .map((x) => x[i]);
-        return active.length ? preparedEncoding(v, active, depth + 1) : v;
+        return active.length
+          ? preparedEncoding(v, active, depth + 1, undefined, ownMedia)
+          : v;
       });
     if (e.itemEncoding) {
       const active = values
         .filter(Array.isArray)
         .flatMap((x) => x.slice(e.prefixEncoding?.length ?? 0));
       if (active.length)
-        copy.itemEncoding = preparedEncoding(e.itemEncoding, active, depth + 1);
+        copy.itemEncoding = preparedEncoding(
+          e.itemEncoding,
+          active,
+          depth + 1,
+          undefined,
+          ownMedia,
+        );
     }
     return copy;
   }
