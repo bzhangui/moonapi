@@ -4,6 +4,8 @@
 
 本轮环境为 Windows x64 / Node24.15.0 / 项目私有 moonc0.10.15，不修改全局 SDK。用户授权测试和隐私核查后推送 GitHub main，**不发布 Mooncakes、Release 或运行包**。原生实现与边界见 [0.8指南](UPGRADE_0_8.md)和[完整对象矩阵](OPENAPI_3_1_3_2_MATRIX.md)，不将原文档改成3.0。
 
+**远端已核实**：修复冻结提交 `d39ec5990812fde98b8780fef1565c8ed13ccef6` 的[CI40810322099](https://github.com/bzhangui/moonapi/actions/runs/40810322099) Windows/macOS/Ubuntu全部成功。CI实际使用Node22.23.4和stable moonc0.10.18；每平台404项Node零失败/零取消/零跳过，45核心×四目标、12组策略对照、全部样例/覆盖与两类包重定位通过。Linux另完成独立PocketBase0.40.5/SQLite受控接入和清理；不是外部真实用户试点。该干净提交的本地33项/5166项验证包provenance精确匹配source_commit，未签名、未公开上传；后续仅文档补证不改变功能源码。
+
 - 冻结功能后 `node scripts/validate.mjs` 退出0：**404项Node回归，0失败/0跳过**；45个不同核心用例在JS/Wasm/Wasm-GC/Native各运行一次，严格检查、release构建、全部计算/HTTP示例与12组Native/JS纯策略对照均通过。原生仍是计算/policy，不是HTTP客户端；标准适配层运行于Node。
 - 核心行覆盖 **1698/1946，约87.3%**。45个固定原始上游文件校验Git blob摘要后执行382组/**1297条断言**，另22份原始远端夹具只经内存grant提供，0跳过。断言已包含在向量执行器的Node用例中，不重复冒充1297项独立Node测试，也不是全量JSON Schema或OAS认证。
 - 原生文档：3.1/3.2版本/默认方言、boolean Schema、精确int64/十进制、引用兄弟、动态资源、未评估注解、未使用组件提前编译；多文档身份冲突、循环、百分号/转义/原型名、合法x-\*字典键、服务器默认值、组件操作ID/ref与实际路由、继承安全声明的来源URI、伪OAD外部样例和未授权资源均保留回归。

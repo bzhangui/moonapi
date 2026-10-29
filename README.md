@@ -21,7 +21,7 @@ npm run validate
 
 [0.8 使用与安全指南](docs/UPGRADE_0_8.md)、[原生 3.1/3.2 覆盖矩阵](docs/OPENAPI_3_1_3_2_MATRIX.md)说明实现、预算、歧义策略与复验入口。当前现代能力声明为 `implementation_status=native-standard`、`full_openapi_support=true`，规范核对基线为 3.1.2 / 3.2.1。这是按矩阵维护的实现范围，不是本次运行结果或第三方认证；局部测试、示例、全套维护和跨平台 CI 分开记录，实际结果以[维护记录](docs/QUALITY_REPORT.md)和[发布记录](docs/PUBLICATION.md)为准。没有任意 Schema 完备求解、穷尽业务或生产可靠性保证。
 
-本轮本机完整维护已通过：**404项Node回归零失败/零跳过，45核心×四目标、12组Native/JS策略对照**，全部示例与源码包隐私检查通过。固定现代上游1297条选定断言全部执行。当前提交的三OS CI与本地包结果另按[维护记录](docs/QUALITY_REPORT.md)核实，不借用历史CI。
+本轮本机完整维护已通过：**404项Node回归零失败/零跳过，45核心×四目标、12组Native/JS策略对照**，全部示例与源码包隐私检查通过。固定现代上游1297条选定断言全部执行。修复源码 `d39ec59` 的[三平台CI](https://github.com/bzhangui/moonapi/actions/runs/40810322099)已全部通过，使用Node22.23.4与moonc0.10.18；本地包及失败/修复历史见[维护记录](docs/QUALITY_REPORT.md)。
 
 ### 0.7 候选的历史证据（不代表 0.8 验收结果）
 

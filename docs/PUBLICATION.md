@@ -8,9 +8,11 @@
 
 实质提交为 `4f4461c`（MoonBit方法策略）、`695d64d`（精确私有帧）、`fd44166`（原生标准执行）、`921330c`（非法/有损JS输入拒绝）、`240b9f1`（multipart和可选分支修复）；指南与验证记录另作提交。功能冻结交付提交 `698741e79681c22a54bc4680ff69587948fb111e` 已推送main，远端SHA匹配，匿名README HTTP200。没有空提交或伪造历史。
 
-上述首轮[CI40808620891](https://github.com/bzhangui/moonapi/actions/runs/40808620891)暴露Node22独立挂起流的非引用超时生命周期问题，三OS均有21项取消，未获得本轮远端通过证据。实质修复提交 `1a82ffeea6e333d4c94076ebca6a5ae96acc36f8` 增加有引用截止计时器和独立进程回归；本地Node22.23.4协议37项、Node24全套404项及四目标流程通过，保留失败历史，待新提交CI复验。
+上述首轮[CI40808620891](https://github.com/bzhangui/moonapi/actions/runs/40808620891)暴露Node22独立挂起流的非引用超时生命周期问题，三OS均有21项取消，未获得本轮远端通过证据。实质修复提交 `1a82ffeea6e333d4c94076ebca6a5ae96acc36f8` 增加有引用截止计时器和独立进程回归；本地Node22.23.4协议37项、Node24全套404项及四目标流程通过，保留失败历史，最终复验结果如下。
 
-该干净提交本地旧33项包、标准5166项包均通过摘要清单、独立锁定安装、标准/现代/状态/安全/恢复演示、工作台与Schema探针重定位验证；标准包provenance的source_commit精确匹配698741e，working_tree_clean=true、signed=false、registry_published=false、public_runtime_uploaded=false。本轮只在忽略目录保存验证包，未创建Release或公开资产；源码包331项隐私门禁和82个本地文档链接核查通过。本轮三OS CI按精确提交核实后补证，未运行项不提前报通过。
+**最终已核实**：修复交付提交 `d39ec5990812fde98b8780fef1565c8ed13ccef6` 已推送main并核对远端SHA；[CI40810322099](https://github.com/bzhangui/moonapi/actions/runs/40810322099) Windows/macOS/Ubuntu全部成功。CI为Node22.23.4 / moonc0.10.18，每平台404 Node、45核心×四目标、12组策略对照、样例/覆盖/两类包复验通过；Linux独立数据库受控接入及清理通过。修复后再次对d39ec59的干净源码构建本地33项/5166项包，source_commit匹配、未签名/未发布，未沿用首轮验证包冒充新包。后续仅文档补证不改变该功能源码。
+
+该干净提交本地旧33项包、标准5166项包均通过摘要清单、独立锁定安装、标准/现代/状态/安全/恢复演示、工作台与Schema探针重定位验证；标准包provenance的source_commit精确匹配698741e，working_tree_clean=true、signed=false、registry_published=false、public_runtime_uploaded=false。本轮只在忽略目录保存验证包，未创建Release或公开资产；源码包331项隐私门禁和82个本地文档链接核查通过。三OS复验结果已按d39ec59补证；首轮包不作为修复包证据。
 
 ## 2026-10-29：0.7.0-rc.1 续作源码，不发布注册表/运行包
 
