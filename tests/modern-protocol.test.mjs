@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   normalizeModernMethod,
   isReadOnlyMethod,
@@ -473,6 +474,20 @@ test("media limits refuse byte/record/part/chunk floods and hung iterators witho
     ),
     /CHUNK_BUDGET/,
   );
+});
+
+test("standalone hung stream owns a referenced deadline and cannot exit with an unresolved promise", () => {
+  const code = `import { decodeModernStream } from ${JSON.stringify(new URL("../platform/modern-media.mjs", import.meta.url).href)};
+ try {await decodeModernStream((async function*(){await new Promise(()=>{});})(),{media:'application/jsonl',timeout:20});process.exitCode=2;}
+ catch(error){if(error.message!=='MODERN_STREAM_DEADLINE')throw error;console.log('bounded-deadline');}`;
+  const child = spawnSync(
+    process.execPath,
+    ["--input-type=module", "-e", code],
+    { encoding: "utf8", timeout: 5000, windowsHide: true },
+  );
+  assert.equal(child.status, 0, child.stderr);
+  assert.match(child.stdout, /bounded-deadline/);
+  assert.equal(child.signal, null);
 });
 test("XML modern text CDATA namespaces and nil preserve structured values and exact integers", () => {
   const schema = {

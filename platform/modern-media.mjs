@@ -2101,17 +2101,26 @@ export async function decodeModernStream(
     fail("STREAM_OPTIONS");
   const { maxBytes } = checkBudget(options),
     timeout = options.timeout ?? 2000;
-  if (!Number.isInteger(timeout) || timeout < 10 || timeout > 30000)
+  if (
+    !Number.isInteger(timeout) ||
+    timeout < 10 ||
+    timeout > 30000 ||
+    (options.signal !== undefined && !(options.signal instanceof AbortSignal))
+  )
     fail("STREAM_OPTIONS");
-  const signal = options.signal
-      ? AbortSignal.any([options.signal, AbortSignal.timeout(timeout)])
-      : AbortSignal.timeout(timeout),
-    parser = multipart
+  // AbortSignal.timeout uses an unreferenced timer. A standalone reader awaiting
+  // a hung iterator must itself keep Node 22 alive until its bounded verdict.
+  const parser = multipart
       ? new MultipartStreamParser(media, content, options)
       : new SequenceParser(media, content, options),
     decoder = multipart ? undefined : new TextDecoder("utf-8", { fatal: true }),
     iterator = chunks[Symbol.asyncIterator](),
     deadline = performance.now() + timeout;
+  const deadlineController = new AbortController(),
+    signal = options.signal
+      ? AbortSignal.any([options.signal, deadlineController.signal])
+      : deadlineController.signal,
+    deadlineTimer = setTimeout(() => deadlineController.abort(), timeout);
   let total = 0,
     count = 0,
     completed = false;
@@ -2137,6 +2146,7 @@ export async function decodeModernStream(
       if (count % 64 === 0) await setImmediate();
     }
   } finally {
+    clearTimeout(deadlineTimer);
     if (!completed && iterator.return)
       Promise.resolve()
         .then(() => iterator.return())
