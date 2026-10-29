@@ -14,6 +14,11 @@ export function encodeTransfer(value, maxBytes = 4194304) {
   const walk = (v, path = "", depth = 0) => {
     if (++nodes > 100000 || depth > 128)
       throw new Error("STANDARD_TRANSFER_BUDGET");
+    if (
+      ["function", "symbol", "bigint"].includes(typeof v) ||
+      (typeof v === "number" && !Number.isFinite(v))
+    )
+      throw new Error("STANDARD_TRANSFER_VALUE");
     if (Buffer.isBuffer(v) || v instanceof Uint8Array) {
       bytes += v.byteLength + Buffer.byteLength(path) + 32;
       if (binaries.length >= 4096 || bytes > maxBytes)
@@ -22,6 +27,31 @@ export function encodeTransfer(value, maxBytes = 4194304) {
       return null;
     }
     if (!v || typeof v !== "object" || numeric(v)) return v;
+    const proto = Object.getPrototypeOf(v);
+    const keys = Reflect.ownKeys(v);
+    if (keys.length > 100000 || (Array.isArray(v) && v.length > 100000 - nodes))
+      throw new Error("STANDARD_TRANSFER_BUDGET");
+    if (
+      Array.isArray(v) &&
+      (keys.length !== v.length + 1 ||
+        keys.some(
+          (k) =>
+            k !== "length" &&
+            (typeof k !== "string" ||
+              !/^(?:0|[1-9]\d*)$/.test(k) ||
+              Number(k) >= v.length ||
+              !Object.getOwnPropertyDescriptor(v, k)?.enumerable),
+        ))
+    )
+      throw new Error("STANDARD_TRANSFER_VALUE");
+    if (
+      (!Array.isArray(v) && proto !== Object.prototype && proto !== null) ||
+      keys.some((k) => typeof k === "symbol") ||
+      Object.values(Object.getOwnPropertyDescriptors(v)).some(
+        (d) => d.get || d.set,
+      )
+    )
+      throw new Error("STANDARD_TRANSFER_VALUE");
     if (active.has(v)) throw new Error("STANDARD_TRANSFER_CYCLE");
     active.add(v);
     const out = Array.isArray(v) ? [] : {};

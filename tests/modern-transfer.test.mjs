@@ -36,6 +36,40 @@ test("worker frames preserve bytes and exact decimals without recognizing busine
   assert.equal(equal(result.payload, result.lookalike), false);
   result.payload[0] = 42;
   assert.equal(value.payload[0], 0);
+  for (const unsupported of [
+    new Date(0),
+    new Map(),
+    new Set(),
+    new Uint16Array([1]),
+    NaN,
+    Infinity,
+    -Infinity,
+    () => 0,
+    Symbol("synthetic"),
+    1n,
+  ])
+    assert.throws(
+      () => encodeTransfer({ unsupported }),
+      /STANDARD_TRANSFER_VALUE/,
+    );
+  let getterCalled = false;
+  const accessor = {
+    get payload() {
+      getterCalled = true;
+      return Buffer.from("not-read");
+    },
+  };
+  assert.throws(() => encodeTransfer(accessor), /STANDARD_TRANSFER_VALUE/);
+  assert.equal(getterCalled, false);
+  const hidden = [1];
+  Object.defineProperty(hidden, "0", { enumerable: false });
+  for (const sparse of [
+    new Array(2),
+    [1, ,],
+    Object.assign([1], { extra: Buffer.from("not-json") }),
+    hidden,
+  ])
+    assert.throws(() => encodeTransfer({ sparse }), /STANDARD_TRANSFER_VALUE/);
 });
 
 test("binary frame pointers round-trip escaped and NUL property names without prototype mutation", () => {
