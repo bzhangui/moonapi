@@ -3,6 +3,10 @@ fn command(input : String) -> Json raise {
   let arguments = @engine.bounded_json(input)
   let action = @engine.text(@engine.field(arguments, "action"))
   match action {
+    "feedback-choice" => {
+      let seed : Int32 = @json.from_json(@engine.field(arguments, "seed"))
+      return @engine.feedback_choice(@engine.field(arguments, "counts"), seed)
+    }
     "resource-history" => {
       let initial : Int32 = @json.from_json(@engine.field(arguments, "initial"))
       let capacity : Int32 = @json.from_json(

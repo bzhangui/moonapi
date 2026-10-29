@@ -19,6 +19,8 @@ pub fn exact_decimal_sum(Json, Json) -> Bool raise TestError
 
 pub fn execution_transition(String, String) -> Json raise TestError
 
+pub fn feedback_choice(Json, Int) -> Json raise TestError
+
 pub fn field(Json, String) -> Json
 
 pub fn generate_sequence(Json, Int, Int) -> Json raise TestError

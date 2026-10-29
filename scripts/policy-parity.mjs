@@ -7,6 +7,7 @@ import { moon, moonEnv } from "./build.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 await loadCore();
 const vectors = [
+  { action: "feedback-choice", counts: [1, 0, 2], seed: 42 },
   {
     action: "resource-history",
     model: "reservation",
