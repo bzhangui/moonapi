@@ -6,7 +6,12 @@ import {
   createDecipheriv,
   createHash,
 } from "node:crypto";
-import { parseExact, stringifyExact } from "./standard-value.mjs";
+import {
+  parseExact,
+  stringifyExact,
+  containsBinary,
+} from "./standard-value.mjs";
+import { encodeTransfer, decodeTransfer } from "./standard-transfer.mjs";
 export function privateDirectory(folder, { create = false } = {}) {
   let absolute = path.resolve(folder);
   // Darwin exposes its system temporary tree through root-owned /var and /tmp
@@ -105,19 +110,45 @@ export function readPrivate(file, maxBytes = 1048576) {
     fs.closeSync(fd);
   }
 }
-export const digestExact = (value) =>
-  createHash("sha256").update(stringifyExact(value)).digest("hex");
+export function digestExact(value) {
+  const hash = createHash("sha256");
+  if (!containsBinary(value))
+    return hash.update(stringifyExact(value)).digest("hex");
+  const frame = encodeTransfer(value);
+  hash
+    .update("MoonAPI exact binary v1\0")
+    .update(
+      stringifyExact({
+        json: frame.json,
+        binaries: frame.binaries.map((b) => [
+          b.path,
+          b.data.toString("base64"),
+        ]),
+      }),
+    );
+  return hash.digest("hex");
+}
 export function saveEncryptedWitness(file, witness, key) {
   if (!Buffer.isBuffer(key) || key.length !== 32)
     throw new Error("WITNESS_KEY_REQUIRED");
+  const format = containsBinary(witness) ? 3 : 2;
   const nonce = randomBytes(12),
     cipher = createCipheriv("aes-256-gcm", key, nonce);
-  cipher.setAAD(Buffer.from("MoonAPI witness v2"));
-  const raw = stringifyExact(witness);
+  cipher.setAAD(Buffer.from("MoonAPI witness v" + format));
+  const frame = format === 3 ? encodeTransfer(witness) : null;
+  const raw = frame
+    ? stringifyExact({
+        ...frame,
+        binaries: frame.binaries.map((b) => ({
+          path: b.path,
+          data: b.data.toString("base64"),
+        })),
+      })
+    : stringifyExact(witness);
   if (Buffer.byteLength(raw) > 524288) throw new Error("WITNESS_BUDGET");
   const encrypted = Buffer.concat([cipher.update(raw, "utf8"), cipher.final()]);
   atomicPrivate(file, {
-    format: 2,
+    format,
     encrypted: true,
     algorithm: "aes-256-gcm",
     nonce: nonce.toString("base64"),
@@ -131,7 +162,7 @@ export function loadEncryptedWitness(file, key) {
   try {
     const envelope = JSON.parse(readPrivate(file));
     if (
-      envelope.format !== 2 ||
+      ![2, 3].includes(envelope.format) ||
       envelope.encrypted !== true ||
       envelope.algorithm !== "aes-256-gcm"
     )
@@ -140,14 +171,25 @@ export function loadEncryptedWitness(file, key) {
       tag = Buffer.from(envelope.tag, "base64");
     if (nonce.length !== 12 || tag.length !== 16) throw new Error();
     const decipher = createDecipheriv("aes-256-gcm", key, nonce);
-    decipher.setAAD(Buffer.from("MoonAPI witness v2"));
+    decipher.setAAD(Buffer.from("MoonAPI witness v" + envelope.format));
     decipher.setAuthTag(tag);
-    return parseExact(
+    const value = parseExact(
       Buffer.concat([
         decipher.update(Buffer.from(envelope.data, "base64")),
         decipher.final(),
       ]).toString("utf8"),
     );
+    if (envelope.format === 2) return value;
+    if (!Array.isArray(value.binaries)) throw new Error();
+    for (const b of value.binaries) {
+      if (
+        typeof b.data !== "string" ||
+        Buffer.from(b.data, "base64").toString("base64") !== b.data
+      )
+        throw new Error();
+      b.data = Buffer.from(b.data, "base64");
+    }
+    return decodeTransfer(value);
   } catch {
     throw new Error("WITNESS_AUTHENTICATION_OR_FILE");
   }

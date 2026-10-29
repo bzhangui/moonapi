@@ -5,6 +5,7 @@ import {
   decimal,
   number,
   setOwn,
+  binary,
 } from "./standard-value.mjs";
 import {
   requestContext,
@@ -19,7 +20,12 @@ import {
 export function shrinkValues(value, depth = 0) {
   if (depth > 8) return [];
   const out = [];
-  if (typeof value === "string") {
+  if (binary(value)) {
+    out.push(
+      Buffer.alloc(0),
+      Buffer.from(value.subarray(0, Math.floor(value.byteLength / 2))),
+    );
+  } else if (typeof value === "string") {
     const chars = Array.from(value);
     out.push(
       "",

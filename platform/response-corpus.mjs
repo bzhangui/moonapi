@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { cloneExact, equal, stringifyExact } from "./standard-value.mjs";
 import { pointer } from "./standard-expression.mjs";
 import { loadCore } from "./runner.mjs";
+import { digestExact } from "./private-store.mjs";
 const safe = /^[A-Za-z0-9_.-]{1,64}$/,
   hex = /^[0-9a-f]{64}$/;
 export class ResponseCorpus {
@@ -129,7 +130,7 @@ export class ResponseCorpus {
           this.#dropped++;
         }
         const token = createHash("sha256")
-          .update(s.id + "\0" + raw)
+          .update(s.id + "\0" + digestExact(sample))
           .digest("hex");
         this.#values.set(token, {
           token,

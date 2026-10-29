@@ -33,9 +33,37 @@ export function number(s) {
 }
 export const parseExact = (s) => parse(s, undefined, { parseNumber: number });
 export const stringifyExact = (v) => stringify(v);
-export const cloneExact = (v) =>
-  v === undefined ? undefined : parseExact(stringifyExact(v));
+export const binary = (v) => Buffer.isBuffer(v) || v instanceof Uint8Array;
+export function containsBinary(v, seen = new Set()) {
+  if (binary(v)) return true;
+  if (!v || typeof v !== "object" || numeric(v) || seen.has(v)) return false;
+  seen.add(v);
+  return Object.values(v).some((x) => containsBinary(x, seen));
+}
+export function cloneExact(v) {
+  if (v === undefined) return undefined;
+  if (!containsBinary(v)) return parseExact(stringifyExact(v));
+  const active = new Set();
+  let nodes = 0;
+  const copy = (x, depth = 0) => {
+    if (++nodes > 100000 || depth > 128)
+      throw new Error("STANDARD_VALUE_BUDGET");
+    if (binary(x)) return Buffer.from(x);
+    if (numeric(x)) return typeof x === "number" ? x : parseExact(String(x));
+    if (!x || typeof x !== "object") return x;
+    if (active.has(x)) throw new Error("STANDARD_VALUE_CYCLE");
+    active.add(x);
+    const out = Array.isArray(x) ? [] : {};
+    for (const [k, v] of Object.entries(x))
+      if (v !== undefined) setOwn(out, k, copy(v, depth + 1));
+    active.delete(x);
+    return out;
+  };
+  return copy(v);
+}
 export function equal(a, b) {
+  if (binary(a) || binary(b))
+    return binary(a) && binary(b) && Buffer.from(a).equals(Buffer.from(b));
   if (numeric(a) || numeric(b))
     return numeric(a) && numeric(b) && compare(a, b) === 0;
   if (a === b) return true;
