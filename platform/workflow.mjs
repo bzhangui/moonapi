@@ -6,6 +6,13 @@ import { pointer } from "./standard-expression.mjs";
 import { documentDigest } from "./ci-tools.mjs";
 import { IsolationLease } from "./isolation.mjs";
 import { inputCandidates } from "./input-shrink.mjs";
+import {
+  inputProtection,
+  inputTarget,
+  overlappingInputs,
+} from "./input-protection.mjs";
+import { ResponseCorpus } from "./response-corpus.mjs";
+import { intentEnvironmentBinding } from "./execution-intent.mjs";
 import { StandardEngine } from "./standard.mjs";
 import { Engine, VERSION } from "./runner.mjs";
 import {
@@ -137,7 +144,14 @@ export function workflowModel(input, description) {
     Buffer.byteLength(stringifyExact(model)) > 262144 ||
     ![1, 2].includes(model.version) ||
     Object.keys(model).some(
-      (k) => !["version", "steps", "cleanup", "initial_state"].includes(k),
+      (k) =>
+        ![
+          "version",
+          "steps",
+          "cleanup",
+          "initial_state",
+          "input_protection",
+        ].includes(k),
     ) ||
     !Array.isArray(model.steps) ||
     !model.steps.length ||
@@ -175,6 +189,7 @@ export function workflowModel(input, description) {
             "role",
             "authorizationProbe",
             "shrink_inputs",
+            "feedback_inputs",
           ].includes(k),
       )
     )
@@ -348,6 +363,65 @@ export function workflowModel(input, description) {
       cleanupIds.add(s.id);
     }
   }
+  const protection = inputProtection(model);
+  if (model.cleanup?.some((s) => s.feedback_inputs !== undefined))
+    throw new Error("WORKFLOW_FEEDBACK_INPUT");
+  if (
+    model.steps.some((s) => s.feedback_inputs?.length) &&
+    [...model.steps, ...(model.cleanup || [])].some((s) => s.ownership) &&
+    !protection.complete
+  )
+    throw new Error("WORKFLOW_FEEDBACK_OWNERSHIP_UNPROVEN");
+  for (const step of model.steps) {
+    if (step.feedback_inputs === undefined) continue;
+    if (
+      model.version !== 2 ||
+      !Array.isArray(step.feedback_inputs) ||
+      step.feedback_inputs.length > 16
+    )
+      throw new Error("WORKFLOW_FEEDBACK_INPUT");
+    const targets = new Set();
+    for (const f of step.feedback_inputs) {
+      if (
+        !f ||
+        Object.keys(f).some(
+          (k) => !["source", "target", "required"].includes(k),
+        ) ||
+        typeof f.source !== "string" ||
+        !/^[A-Za-z0-9_.-]{1,64}$/.test(f.source) ||
+        (f.required !== undefined && typeof f.required !== "boolean")
+      )
+        throw new Error("WORKFLOW_FEEDBACK_INPUT");
+      const target = inputTarget(f.target);
+      const operation = description.operations.find(
+        (o) => o.id === step.request.operation_id,
+      );
+      if (
+        target.kind === "query" &&
+        Object.values(operation.security_schemes ?? {}).some(
+          (scheme) =>
+            scheme.type === "apiKey" &&
+            scheme.in === "query" &&
+            scheme.name === target.key,
+        )
+      )
+        throw new Error("WORKFLOW_FEEDBACK_AUTH_TARGET");
+      if (
+        [...targets].some((target) => overlappingInputs(target, f.target)) ||
+        protection.overlaps(step.id, f.target)
+      )
+        throw new Error("WORKFLOW_FEEDBACK_PROTECTED_TARGET");
+      targets.add(f.target);
+      for (const b of step.bindings || []) {
+        const a = portable("standard-expression", { expression: b.target });
+        if (
+          ["body", "query"].includes(a.kind) &&
+          overlappingInputs(b.target, f.target)
+        )
+          throw new Error("WORKFLOW_FEEDBACK_BOUND_TARGET");
+      }
+    }
+  }
   return model;
 }
 function metadata(steps) {
@@ -455,6 +529,7 @@ export class StandardWorkflow {
       witnessFile,
       witnessKey,
       isolation,
+      feedbackCorpus,
     } = {},
   ) {
     if (this.#closed) throw new Error("WORKFLOW_CLOSED");
@@ -471,7 +546,10 @@ export class StandardWorkflow {
     )
       throw new Error("WORKFLOW_OPTIONS");
     const description = this.description,
-      model = workflowModel(input, description);
+      model = workflowModel(input, description),
+      protection = inputProtection(model),
+      ownedInputReplay =
+        !!model.cleanup?.length && allowCleanup === true && protection.complete;
     if (model.cleanup && !allowCleanup)
       throw new Error("WORKFLOW_CLEANUP_NOT_AUTHORIZED");
     if (
@@ -482,6 +560,26 @@ export class StandardWorkflow {
     new Engine("{}", { allowRemote: this.#engine.options.allowRemote }).base(
       base,
     );
+    if (
+      (model.steps.some((s) => s.feedback_inputs?.length) ||
+        feedbackCorpus !== undefined) &&
+      !(feedbackCorpus instanceof ResponseCorpus)
+    )
+      throw new Error("WORKFLOW_FEEDBACK_CORPUS_REQUIRED");
+    if (feedbackCorpus) {
+      feedbackCorpus.assertScope({
+        documentBinding: this.#sourceDigest,
+        environmentBinding: intentEnvironmentBinding(base),
+        description,
+      });
+      for (const s of model.steps)
+        for (const f of s.feedback_inputs || [])
+          feedbackCorpus.authorize(
+            f.source,
+            s.request.operation_id,
+            s.role ?? "default",
+          );
+    }
     // Preflight every side effect before invoking even an authorized reset hook.
     for (const step of [...model.steps, ...(model.cleanup || [])]) {
       const op = description.operations.find(
@@ -498,7 +596,9 @@ export class StandardWorkflow {
     if (
       (reset && !allowReset) ||
       (allowReset && typeof reset !== "function") ||
-      (shrink && (!allowReset || typeof reset !== "function"))
+      (shrink &&
+        !ownedInputReplay &&
+        (!allowReset || typeof reset !== "function"))
     )
       throw new Error("WORKFLOW_RESET_NOT_AUTHORIZED");
     this.#busy = true;
@@ -514,6 +614,8 @@ export class StandardWorkflow {
     }
     let attempt = 0;
     let unknownWriteHalt = false;
+    let cleanupHalt = false;
+    let learning = true;
     let lease;
     let leaseFinalized = false;
     const deadline = performance.now() + totalTimeout;
@@ -529,6 +631,19 @@ export class StandardWorkflow {
       throw new Error("WORKFLOW_ISOLATION");
     }
     let attempts = 0;
+    const verifyLease = async () => {
+      if (!lease) return;
+      try {
+        await lease.verify(
+          AbortSignal.timeout(
+            Math.ceil(Math.max(1, deadline - performance.now())),
+          ),
+        );
+      } catch (error) {
+        feedbackCorpus?.markUnsafe();
+        throw error;
+      }
+    };
     const managed = async (request, step_id, expect, step = {}) => {
       const operation = description.operations.find(
         (o) => o.id === request.operation_id,
@@ -538,12 +653,7 @@ export class StandardWorkflow {
         !["GET", "HEAD", "OPTIONS"].includes(operation?.method)
       )
         throw new Error("WORKFLOW_UNKNOWN_WRITE");
-      if (lease)
-        await lease.verify(
-          AbortSignal.timeout(
-            Math.ceil(Math.max(1, deadline - performance.now())),
-          ),
-        );
+      await verifyLease();
       const current = ++attempt;
       return this.#engine.execute(base, request, {
         remainingMs: Math.max(0, deadline - performance.now()),
@@ -554,8 +664,10 @@ export class StandardWorkflow {
           if (
             event.state === "unknown" &&
             !["GET", "HEAD", "OPTIONS"].includes(event.method)
-          )
+          ) {
             unknownWriteHalt = true;
+            feedbackCorpus?.markUnsafe();
+          }
           return ledger.event(current, event.state, { ...event, step_id });
         },
       });
@@ -599,6 +711,8 @@ export class StandardWorkflow {
       };
     };
     const trial = async (steps, contexts, records) => {
+      if (cleanupHalt)
+        return { records, category: "blocked", code: "cleanup_unconfirmed" };
       if (unknownWriteHalt)
         return {
           records,
@@ -610,12 +724,7 @@ export class StandardWorkflow {
       if (performance.now() >= deadline)
         return { records, category: "budget", code: "total_deadline" };
       if (reset) {
-        if (lease)
-          await lease.verify(
-            AbortSignal.timeout(
-              Math.ceil(Math.max(1, deadline - performance.now())),
-            ),
-          );
+        await verifyLease();
         const controller = new AbortController();
         let timer,
           resetTimedOut = false;
@@ -680,6 +789,43 @@ export class StandardWorkflow {
           };
         }
         let result, outcome;
+        if (learning && step.feedback_inputs?.length) {
+          for (const f of step.feedback_inputs) {
+            const valid = [];
+            for (const sample of feedbackCorpus.candidates(
+              f.source,
+              request.operation_id,
+              step.role ?? "default",
+            )) {
+              if (performance.now() >= deadline)
+                return { records, category: "budget", code: "total_deadline" };
+              const candidate = cloneExact(request);
+              if (
+                bindExpression(candidate, f.target, sample.value) &&
+                protection.allows([{ ...step, request: candidate }]) &&
+                (await this.#engine.validateRequest(candidate)).valid
+              )
+                valid.push(sample);
+            }
+            if (!valid.length) {
+              if (f.required)
+                return {
+                  records,
+                  category: "blocked",
+                  code: "feedback_no_valid_candidate",
+                };
+              continue;
+            }
+            const selected = await feedbackCorpus.choose(
+              valid,
+              this.#engine.options.seed,
+            );
+            bindExpression(request, f.target, cloneExact(selected));
+            // Freeze accepted exogenous values into this private trial model.
+            // Replays/shrinking neither relearn nor consume new corpus choices.
+            bindExpression(step.request, f.target, cloneExact(selected));
+          }
+        }
         const count = step.poll?.attempts || 1;
         for (let n = 0; n < count; n++) {
           try {
@@ -753,6 +899,18 @@ export class StandardWorkflow {
           passed: outcome.passed,
           assertion_id: outcome.assertion_id,
         });
+        if (
+          learning &&
+          feedbackCorpus &&
+          outcome.passed &&
+          result.context.status >= 200 &&
+          result.context.status < 300
+        )
+          feedbackCorpus.observe(
+            request.operation_id,
+            step.role,
+            result.context.response.body,
+          );
         if (!outcome.passed) {
           const fingerprint = createHash("sha256")
             .update(
@@ -771,6 +929,13 @@ export class StandardWorkflow {
       return { records, category: "passed", code: "" };
     };
     const run = async (steps) => {
+      if (cleanupHalt)
+        return {
+          records: [],
+          category: "blocked",
+          code: "cleanup_unconfirmed",
+          cleanup_verified: false,
+        };
       const contexts = new Map(),
         records = [];
       let result;
@@ -782,6 +947,15 @@ export class StandardWorkflow {
       if (model.cleanup) {
         let verified = true;
         for (const s of model.cleanup) {
+          const refs = [
+            ...(s.bindings || []),
+            ...(s.ownership?.bindings || []),
+          ].map((b) => b.from);
+          if (
+            refs.length &&
+            refs.every((id) => !steps.some((s) => s.id === id))
+          )
+            continue;
           // Never guess a resource ID following an uncertain create.
           if ((s.bindings || []).some((b) => !contexts.has(b.from))) {
             verified = false;
@@ -813,6 +987,8 @@ export class StandardWorkflow {
         }
         result.cleanup_verified = verified;
         if (!verified) {
+          cleanupHalt = true;
+          feedbackCorpus?.markUnsafe();
           result.original_category = result.category;
           result.category = "blocked";
           result.code = "cleanup_unconfirmed";
@@ -822,6 +998,7 @@ export class StandardWorkflow {
     };
     try {
       const initial = await run(model.steps);
+      learning = false;
       let retained = model.steps,
         confirmed = false,
         unstable = false;
@@ -860,18 +1037,26 @@ export class StandardWorkflow {
               retained = candidate;
               i = 0;
             } else i++;
-            if (unknownWriteHalt || performance.now() >= deadline) break;
+            if (
+              unknownWriteHalt ||
+              cleanupHalt ||
+              performance.now() >= deadline
+            )
+              break;
           }
-          if (!model.cleanup) {
+          if (!model.cleanup || ownedInputReplay) {
             let improved = true;
             while (
               improved &&
               !unknownWriteHalt &&
+              !cleanupHalt &&
               attempts < shrinkBudget &&
               performance.now() < deadline
             ) {
               improved = false;
-              for (const candidate of inputCandidates(retained)) {
+              for (const candidate of inputCandidates(retained, {
+                protection,
+              })) {
                 if (
                   stringifyExact(candidate).length >=
                   stringifyExact(retained).length
@@ -879,6 +1064,7 @@ export class StandardWorkflow {
                   continue;
                 if (
                   unknownWriteHalt ||
+                  cleanupHalt ||
                   attempts >= shrinkBudget ||
                   performance.now() >= deadline
                 )
@@ -897,9 +1083,10 @@ export class StandardWorkflow {
               }
             }
           }
-          const final = unknownWriteHalt
-            ? { category: "blocked" }
-            : await run(retained);
+          const final =
+            unknownWriteHalt || cleanupHalt
+              ? { category: "blocked" }
+              : await run(retained);
           confirmed =
             final.category === "defect" &&
             final.fingerprint === initial.fingerprint;
@@ -910,8 +1097,13 @@ export class StandardWorkflow {
         const witnessModel = cloneExact(input);
         witnessModel.steps = cloneExact(retained).map((s) => {
           delete s.needs;
+          delete s.feedback_inputs;
           return s;
         });
+        if (witnessModel.input_protection)
+          witnessModel.input_protection = witnessModel.input_protection.filter(
+            (l) => retained.some((s) => s.id === l.step),
+          );
         saveEncryptedWitness(
           witnessFile,
           {
@@ -943,6 +1135,7 @@ export class StandardWorkflow {
         shrink_attempts: attempts,
         shrink_confirmed: confirmed,
         shrinking_stopped_unknown_write: unknownWriteHalt,
+        shrinking_stopped_cleanup_unconfirmed: cleanupHalt,
         unstable,
         shrink_budget_exhausted:
           initial.category === "defect" &&
@@ -955,10 +1148,22 @@ export class StandardWorkflow {
         execution: ledger.summary(),
         witness_saved: witnessSaved,
         input_shrink_attempts: inputAttempts,
-        input_shrink_policy: model.cleanup
-          ? "disabled_to_preserve_owned_markers"
-          : "explicit_exogenous_targets_only",
+        input_shrink_policy: ownedInputReplay
+          ? "explicit_exogenous_targets_with_owned_source_locks"
+          : model.cleanup
+            ? "disabled_to_preserve_owned_markers"
+            : "explicit_exogenous_targets_only",
       };
+      if (cleanupHalt)
+        Object.assign(report, {
+          original_category: report.original_category ?? report.category,
+          category: "blocked",
+          code: "cleanup_unconfirmed",
+          passed: false,
+          complete: false,
+          shrink_confirmed: false,
+          cleanup_verified: false,
+        });
       if (lease) {
         leaseFinalized = true;
         let released = false;
@@ -966,6 +1171,7 @@ export class StandardWorkflow {
           released = await lease.release();
         } catch {}
         if (!released) {
+          feedbackCorpus?.markUnsafe();
           report.original_category = report.category;
           report.category = "blocked";
           report.code = "isolation_release_failed";
@@ -973,14 +1179,23 @@ export class StandardWorkflow {
           report.complete = false;
         }
       }
+      if (feedbackCorpus)
+        report.feedback = {
+          ...feedbackCorpus.summary(),
+          frozen_for_replay: true,
+        };
       return report;
     } finally {
       ledger.close();
       if (lease && !leaseFinalized) {
         try {
-          if (!(await lease.release())) this.#closed = true;
+          if (!(await lease.release())) {
+            this.#closed = true;
+            feedbackCorpus?.markUnsafe();
+          }
         } catch {
           this.#closed = true;
+          feedbackCorpus?.markUnsafe();
         }
       }
       this.#busy = false;

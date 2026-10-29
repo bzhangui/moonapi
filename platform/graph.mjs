@@ -19,6 +19,21 @@ export async function planResourceGraph(
       graph.cleanup.length > 64)
   )
     throw new Error("GRAPH_CLEANUP");
+  const protection =
+    graph.input_protection === undefined ? [] : graph.input_protection;
+  if (
+    !Array.isArray(protection) ||
+    protection.length > 64 ||
+    protection.some(
+      (l) =>
+        !l ||
+        Object.keys(l).sort().join(",") !== "step,target" ||
+        !ids.has(l.step) ||
+        typeof l.target !== "string" ||
+        (graph.transitions.find((t) => t.id === l.step).max_visits ?? 1) !== 1,
+    )
+  )
+    throw new Error("GRAPH_INPUT_PROTECTION");
   const cleanupRefs = (graph.cleanup || [])
     .flatMap((s) => [...(s.bindings || []), ...(s.ownership?.bindings || [])])
     .map((b) => b.from);
@@ -107,6 +122,13 @@ export async function planResourceGraph(
       initial_state: graph.initial_state || {},
       steps,
       ...(cleanup.length ? { cleanup } : {}),
+      ...(protection.length
+        ? {
+            input_protection: protection
+              .filter((l) => latest.has(l.step))
+              .map((l) => ({ ...l, step: latest.get(l.step) })),
+          }
+        : {}),
     },
     coverage: plan,
     seed,

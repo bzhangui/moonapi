@@ -25,7 +25,7 @@ export function runtimeValue(value, context) {
       ? expression(value, context)
       : value;
 }
-function parseExpression(expr) {
+export function parseExpression(expr) {
   if (typeof globalThis.__moonapi_core === "function") {
     const result = JSON.parse(
       globalThis.__moonapi_core(
@@ -91,13 +91,20 @@ export function expression(expr, context) {
 export function bindExpression(test, expr, value) {
   // Bind only caller-owned request inputs. Response-derived expressions cannot
   // be rewritten before a request; callers can instead supply an explicit URL.
-  const m =
-    /^\{?\$request\.(body(?:#(.*))?|query\.(.+)|header\.(.+)|path\.(.+))\}?$/.exec(
-      expr,
-    );
-  if (!m) return false;
-  if (m[1].startsWith("body")) {
-    const fragment = (m[2] || "").replace(/\}$/u, "");
+  if (typeof expr !== "string") return false;
+  // Strip only a complete expression envelope, never a literal trailing brace
+  // in an unwrapped JSON Pointer or parameter name. Parsing/binding must agree.
+  const source =
+    expr.startsWith("{") && expr.endsWith("}") ? expr.slice(1, -1) : expr;
+  let ast;
+  try {
+    ast = parseExpression(source);
+  } catch {
+    return false;
+  }
+  if (ast.source !== "request") return false;
+  if (ast.kind === "body") {
+    const fragment = ast.pointer;
     if (!fragment) {
       test.body = value;
       return true;
@@ -120,8 +127,8 @@ export function bindExpression(test, expr, value) {
     setOwn(parent, keys.at(-1), value);
     return true;
   }
-  const location = m[3] ? "query" : m[4] ? "header" : "path",
-    name = (m[3] || m[4] || m[5]).replace(/\}$/u, "");
+  const location = ast.kind,
+    name = ast.key;
   const p = test.parameters.find(
     (p) =>
       p.in === location &&

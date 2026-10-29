@@ -111,6 +111,19 @@ export function ownedResourceWorkflow(options) {
   ];
   return model;
 }
+// Opt-in v2 template. The old ownedResourceWorkflow return format is unchanged.
+export function protectedOwnedWorkflow(options) {
+  const model = ownedResourceWorkflow(options),
+    field = options.field || "name",
+    target = "$request.body#/" + field.replace(/~/g, "~0").replace(/\//g, "~1");
+  model.version = 2;
+  model.initial_state = {};
+  model.input_protection = [
+    { step: "create", target },
+    { step: "update", target },
+  ];
+  return model;
+}
 export function idempotencyWorkflow({
   operation,
   keyParameter = "Idempotency-Key",

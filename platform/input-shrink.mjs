@@ -71,7 +71,7 @@ export function shrinkValues(value, depth = 0) {
     })
     .slice(0, 64);
 }
-export function inputCandidates(steps) {
+export function inputCandidates(steps, { protection } = {}) {
   const out = [];
   for (let i = 0; i < steps.length; i++)
     for (const target of steps[i].shrink_inputs || []) {
@@ -84,7 +84,10 @@ export function inputCandidates(steps) {
         if (stringifyExact(candidate).length >= stringifyExact(value).length)
           continue;
         const changed = cloneExact(steps);
-        if (bindExpression(changed[i].request, target, candidate))
+        if (
+          bindExpression(changed[i].request, target, candidate) &&
+          (!protection || protection.allows(changed))
+        )
           out.push(changed);
         if (out.length >= 64) return out;
       }
