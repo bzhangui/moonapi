@@ -341,3 +341,49 @@ test "modern portable numeric structural and recursive budgets refuse excessive 
   }
   assert_true(count_error)
 }
+
+///|
+test "modern task machine handles deep valid schemas without speculative branches" {
+  let empty = Json::empty_object()
+  let leaves = fn(_, _) { true }
+  let mut deep : Json = true
+  for _ in 0..<200 {
+    deep = Json({ "allOf": Json([deep]) })
+  }
+  assert_eq(
+    field(modern_validate(deep, empty, 0, empty, leaves, leaves), "valid"),
+    Json(true),
+  )
+  let cycle : Json = { "$ref": "r" }
+  let docs : Json = { "r": cycle }
+  let schemas : Array[Json] = [
+    { "if": { "allOf": [{ "type": "string" }] }, "then": cycle, "else": true },
+    {
+      "allOf": [{ "properties": { "a": true } }],
+      "unevaluatedProperties": cycle,
+    },
+  ]
+  for schema in schemas {
+    assert_eq(
+      field(
+        modern_validate(schema, docs, { "a": 0 }, empty, leaves, leaves),
+        "valid",
+      ),
+      Json(true),
+    )
+  }
+  assert_eq(
+    field(
+      modern_validate(
+        { "contains": { "type": "integer" }, "unevaluatedItems": cycle },
+        docs,
+        [1],
+        empty,
+        leaves,
+        leaves,
+      ),
+      "valid",
+    ),
+    Json(true),
+  )
+}

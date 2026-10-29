@@ -3,9 +3,19 @@
 /// leaves are supplied by the host; no network, filesystem or JS evaluator here.
 priv struct ModernResult {
   mut valid : Bool
+  pending : Bool
   props : Map[String, Bool]
   items : Map[Int32, Bool]
   errors : Array[String]
+}
+
+///|
+priv struct ModernTask {
+  schema : Json
+  data : Json
+  path : String
+  kind : String
+  depth : Int32
 }
 
 ///|
@@ -18,7 +28,69 @@ priv struct ModernContext {
   mode : String
   direction : String
   mut operations : Int32
-  active : Map[String, Bool]
+  mut pending : Bool
+  mut key_bytes : Int32
+  queue : Array[ModernTask]
+  cache : Map[String, ModernResult]
+  schemas : Map[String, Int32]
+}
+
+///|
+/// Structural schema identity includes exact numeric lexemes. Hash-map keys
+/// retain full equality checks; a hash collision cannot alias different schemas.
+fn ModernContext::task_key(
+  self : ModernContext,
+  task : ModernTask,
+) -> String raise {
+  guard task.depth <= 256 else {
+    raise Invalid("MODERN_SCHEMA_RESOURCE_BUDGET")
+  }
+  let schema = task.schema.stringify()
+  self.key_bytes = self.key_bytes + schema.length() + task.path.length()
+  guard self.key_bytes <= 67108864 else {
+    raise Invalid("MODERN_SCHEMA_RESOURCE_BUDGET")
+  }
+  let id = match self.schemas.get(schema) {
+    Some(id) => id
+    None => {
+      let id = self.schemas.length()
+      self.schemas[schema] = id
+      id
+    }
+  }
+  Json([Json(id), Json(task.path), Json(task.kind), Json(task.depth)]).stringify()
+}
+
+///|
+/// Dependencies are queued, never evaluated on the host call stack. An unknown
+/// child cannot authorize an if branch or unevaluated* assertion speculatively.
+fn ModernContext::child(
+  self : ModernContext,
+  schema : Json,
+  data : Json,
+  path : String,
+  kind : String,
+  depth : Int32,
+) -> ModernResult raise {
+  let task : ModernTask = { schema, data, path, kind, depth, }
+  let key = self.task_key(task)
+  match self.cache.get(key) {
+    Some(result) => result
+    None => {
+      guard self.queue.length() < 200000 else {
+        raise Invalid("MODERN_SCHEMA_RESOURCE_BUDGET")
+      }
+      self.pending = true
+      self.queue.push(task)
+      {
+        valid: true,
+        pending: true,
+        props: Map([]),
+        items: Map([]),
+        errors: [],
+      }
+    }
+  }
 }
 
 ///|
@@ -190,13 +262,14 @@ fn ModernContext::evaluate(
   }
   let r : ModernResult = {
     valid: true,
+    pending: false,
     props: Map([]),
     items: Map([]),
     errors: [],
   }
   let has = fn(k) { modern_has(schema, k) }
   let get = fn(k) { field(schema, k) }
-  let child = fn(s) raise { self.evaluate(s, data, path, kind, depth + 1) }
+  let child = fn(s) raise { self.child(s, data, path, kind, depth + 1) }
   if schema == Json(false) {
     r.fail("false schema")
   } else if schema != Json(true) {
@@ -204,13 +277,7 @@ fn ModernContext::evaluate(
       guard modern_has(self.documents, uri) else {
         raise Invalid("MODERN_SCHEMA_INVALID_OR_UNGRANTED")
       }
-      let key = Json([Json(uri), Json(path), Json(kind)]).stringify()
-      guard !self.active.contains(key) else {
-        raise Invalid("MODERN_SCHEMA_RESOURCE_BUDGET")
-      }
-      self.active[key] = true
       let result = child(field(self.documents, uri))
-      self.active.remove(key) |> ignore
       if !result.valid {
         r.fail("$ref")
       } else {
@@ -376,16 +443,18 @@ fn ModernContext::evaluate(
     }
     if has("if") {
       let condition = child(get("if"))
-      if condition.valid {
-        r.merge(condition)
-      }
-      let branch = if condition.valid { "then" } else { "else" }
-      if has(branch) {
-        let x = child(get(branch))
-        if !x.valid {
-          r.fail(branch)
-        } else {
-          r.merge(x)
+      if !condition.pending {
+        if condition.valid {
+          r.merge(condition)
+        }
+        let branch = if condition.valid { "then" } else { "else" }
+        if has(branch) {
+          let x = child(get(branch))
+          if !x.valid {
+            r.fail(branch)
+          } else {
+            r.merge(x)
+          }
         }
       }
     }
@@ -406,7 +475,7 @@ fn ModernContext::evaluate(
         }
       }
       let property = fn(sub, k, name) raise {
-        if !self.evaluate(
+        if !self.child(
             sub,
             m[k],
             path + "/" + modern_pointer(k),
@@ -445,7 +514,7 @@ fn ModernContext::evaluate(
       }
       if has("propertyNames") {
         for k in keys {
-          if !self.evaluate(
+          if !self.child(
               get("propertyNames"),
               Json(k),
               path + "/" + modern_pointer(k),
@@ -475,7 +544,7 @@ fn ModernContext::evaluate(
           }
         }
       }
-      if has("unevaluatedProperties") {
+      if has("unevaluatedProperties") && !self.pending {
         for k in keys {
           if !r.props.contains(k) {
             property(get("unevaluatedProperties"), k, "unevaluatedProperties")
@@ -511,7 +580,7 @@ fn ModernContext::evaluate(
         }
       }
       let item = fn(sub, i, name) raise {
-        if !self.evaluate(sub, xs[i], path + "/\{i}", kind, depth + 1).valid {
+        if !self.child(sub, xs[i], path + "/\{i}", kind, depth + 1).valid {
           r.fail(name)
         } else {
           r.items[i] = true
@@ -529,7 +598,7 @@ fn ModernContext::evaluate(
       if has("contains") {
         let passing : Array[Int32] = []
         for i, x in xs {
-          if self.evaluate(get("contains"), x, path + "/\{i}", kind, depth + 1).valid {
+          if self.child(get("contains"), x, path + "/\{i}", kind, depth + 1).valid {
             passing.push(i)
           }
         }
@@ -546,7 +615,7 @@ fn ModernContext::evaluate(
           }
         }
       }
-      if has("unevaluatedItems") {
+      if has("unevaluatedItems") && !self.pending {
         for i = 0; i < xs.length(); i = i + 1 {
           if !r.items.contains(i) {
             item(get("unevaluatedItems"), i, "unevaluatedItems")
@@ -591,9 +660,42 @@ pub fn modern_validate(
     mode,
     direction,
     operations: 0,
-    active: Map([]),
+    pending: false,
+    key_bytes: 0,
+    queue: [],
+    cache: Map([]),
+    schemas: Map([]),
   }
-  let r = context.evaluate(schema, data, "", "value", 0)
+  let root : ModernTask = { schema, data, path: "", kind: "value", depth: 0, }
+  let root_key = context.task_key(root)
+  let tasks = [root]
+  while tasks.pop() is Some(task) {
+    let key = context.task_key(task)
+    if context.cache.contains(key) {
+      continue
+    }
+    context.pending = false
+    context.queue.clear()
+    let r = context.evaluate(
+      task.schema,
+      task.data,
+      task.path,
+      task.kind,
+      task.depth,
+    )
+    if context.pending {
+      guard tasks.length() + context.queue.length() < 200000 else {
+        raise Invalid("MODERN_SCHEMA_RESOURCE_BUDGET")
+      }
+      tasks.push(task)
+      for next in context.queue {
+        tasks.push(next)
+      }
+    } else {
+      context.cache[key] = r
+    }
+  }
+  let r = context.cache[root_key]
   Json({ "valid": Json(r.valid), "errors": Json(r.errors) })
 }
 
