@@ -82,6 +82,12 @@ fn command(input : String) -> Json raise {
       return @engine.standard_expression(
         @engine.text(@engine.field(arguments, "expression")),
       )
+    "standard-read-only" =>
+      return Json(
+        @engine.standard_read_only(
+          @engine.text(@engine.field(arguments, "method")),
+        ),
+      )
     "standard-schedule" => {
       let seed : Int32 = @json.from_json(@engine.field(arguments, "seed"))
       let limit : Int32 = @json.from_json(@engine.field(arguments, "limit"))

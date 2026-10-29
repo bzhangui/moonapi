@@ -61,6 +61,11 @@ pub fn standard_expression(expression : String) -> Json raise TestError {
 }
 
 ///|
+pub fn standard_read_only(verb : String) -> Bool {
+  verb == "GET" || verb == "HEAD" || verb == "OPTIONS" || verb == "QUERY"
+}
+
+///|
 pub fn standard_schedule(
   catalog : Json,
   seed : Int32,

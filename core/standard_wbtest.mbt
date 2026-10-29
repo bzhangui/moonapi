@@ -31,6 +31,16 @@ test "runtime expression AST is portable and preserves opaque pointer tokens" {
 }
 
 ///|
+test "registered QUERY is safe but case-sensitive custom methods are not promoted" {
+  for verb in ["GET", "HEAD", "OPTIONS", "QUERY"] {
+    assert_eq(standard_read_only(verb), true)
+  }
+  for verb in ["get", "query", "POST", "COPY", "copy", "CONNECT"] {
+    assert_eq(standard_read_only(verb), false)
+  }
+}
+
+///|
 test "standard scheduler is fair and repeatable" {
   let catalog : Json = [
     { "id": "alpha", "count": 4 },

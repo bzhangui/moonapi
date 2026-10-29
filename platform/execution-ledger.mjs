@@ -9,16 +9,11 @@ import {
 import { performance } from "node:perf_hooks";
 import { loadCore } from "./runner.mjs";
 import { privateDirectory, readPrivate } from "./private-store.mjs";
-const methods = new Set([
-  "GET",
-  "HEAD",
-  "OPTIONS",
-  "POST",
-  "PUT",
-  "PATCH",
-  "DELETE",
-  "TRACE",
-]);
+import { isReadOnlyMethod } from "./standard-method.mjs";
+// HTTP methods are case-sensitive tokens, including OAS 3.2 QUERY and
+// additionalOperations. Persist the exact token, never promote custom casing.
+const validMethod = (value) =>
+  typeof value === "string" && /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}$/.test(value);
 const hash = (value) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export function journalSettings(options = {}) {
@@ -94,7 +89,7 @@ export class ExecutionLedger {
       !Number.isInteger(attempt) ||
       attempt < 1 ||
       attempt > 10000 ||
-      !methods.has(method) ||
+      !validMethod(method) ||
       !Number.isInteger(status ?? 0) ||
       (status ?? 0) < 0 ||
       (status ?? 0) > 599
@@ -219,9 +214,7 @@ function summarize(events) {
     responses: rows.filter((a) => a.responded).length,
     unknown: rows.filter((a) => a.outcome === "unknown").length,
     unknown_writes: rows.filter(
-      (a) =>
-        a.outcome === "unknown" &&
-        !["GET", "HEAD", "OPTIONS"].includes(a.method),
+      (a) => a.outcome === "unknown" && !isReadOnlyMethod(a.method),
     ).length,
     automatic_replay_permitted: false,
     receipts: rows,
@@ -335,7 +328,7 @@ async function recoverText(
       (run !== undefined && run !== e.run_id) ||
       typeof e.run_id !== "string" ||
       !/^[a-zA-Z0-9_-]{1,96}$/.test(e.run_id) ||
-      !methods.has(e.method) ||
+      !validMethod(e.method) ||
       !Number.isInteger(e.attempt) ||
       e.attempt < 1 ||
       e.attempt > 10000 ||

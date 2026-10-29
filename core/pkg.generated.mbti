@@ -61,6 +61,8 @@ pub fn standard_expression(String) -> Json raise TestError
 
 pub fn standard_oracle(Int, Bool, Bool) -> Json raise TestError
 
+pub fn standard_read_only(String) -> Bool
+
 pub fn standard_schedule(Json, Int, Int) -> Json raise TestError
 
 pub fn standard_verdict(Int, Int, Int, Int, Bool) -> Json raise TestError
