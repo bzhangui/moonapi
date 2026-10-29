@@ -19,6 +19,8 @@ node scripts/language-audit.mjs
 
 私有 SDK 通过 `MOON_BIN` 和 `MOON_HOME` 选择；构建/维护入口拒绝未知版本或低于0.10.16。已验证的私有 SDK 是moonc0.10.18，不代表测试了每个历史编译器。
 
+首次执行正常构建同步依赖；已安装并验证依赖后，可用 `node scripts/build.mjs --frozen` 显式离线/冻结构建。便携包使用此模式，不为打包再次联网刷新注册表索引；不会跳过编译/版本/缺失依赖检查，也不忽略同步失败。标准Node包的独立npm锁定安装仍需相应网络或缓存。
+
 公共 `core.modern_validate` 接受**已校验语法、完成 URI 授权及专门化**的 Schema/文档图、精确 Json、独立二进制路径映射及显式正则/格式回调；不是任意原始 OpenAPI 的单函数解析器。`@json.parse(..., preserve_number_repr=true)` 保留 int64/十进制词法；不能在先舍入为 Double 后恢复精度。回调只回答叶子谓词，不能替代整个 Schema 求值。无相关关键字时可以传入遇调用即报错的回调，示例见 `examples/core/main.mbt`。
 
 二进制由适配器从真实 Buffer/Uint8Array 建立路径到十六进制映射，在 Json 中使用占位；普通业务对象、`__proto__`、转义键不能被识别为类型标签。精确整数格式范围也由 MoonBit 求值，不委托给 Double。

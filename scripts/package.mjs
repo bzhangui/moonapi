@@ -7,7 +7,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const version = JSON.parse(
   fs.readFileSync(path.join(root, "package.json"), "utf8"),
 ).version;
-const built = spawnSync(process.execPath, ["scripts/build.mjs"], {
+const built = spawnSync(process.execPath, ["scripts/build.mjs", "--frozen"], {
   cwd: root,
   stdio: "inherit",
 });

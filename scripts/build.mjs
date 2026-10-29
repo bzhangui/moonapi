@@ -63,6 +63,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (nodeParts[0] < 22 || (nodeParts[0] === 22 && nodeParts[1] < 19))
     throw new Error("Node.js >= 22.19.0 required");
   versionCheck();
-  run(moon, ["update"]);
-  run(moon, ["build", "--target", "js", "--release", "--deny-warn"]);
+  const frozen = process.argv.includes("--frozen");
+  if (!frozen) run(moon, ["update"]);
+  run(moon, [
+    "build",
+    "--target",
+    "js",
+    "--release",
+    "--deny-warn",
+    ...(frozen ? ["--frozen"] : []),
+  ]);
 }
