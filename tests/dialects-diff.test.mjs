@@ -7,7 +7,8 @@ import {
 } from "../platform/definition.mjs";
 import { contractDiff } from "../platform/ci-tools.mjs";
 import { StandardEngine } from "../platform/standard.mjs";
-test("modern dialect structural inspection is independent and never enables unvalidated execution", async () => {
+import { capabilitiesFor } from "../platform/standard-capabilities.mjs";
+test("dialect inspection uses native document and Schema validation without conflating support with certification", async () => {
   for (const version of ["3.0.4", "3.1.2", "3.2.1"]) {
     const d = {
       openapi: version,
@@ -16,10 +17,19 @@ test("modern dialect structural inspection is independent and never enables unva
     };
     const r = await inspectDialect(JSON.stringify(d));
     assert.equal(r.structurally_valid, true, JSON.stringify(r));
-    assert.equal(r.execution_supported, version.startsWith("3.0."));
-    assert.equal(r.modern_execution_validated, false);
-    if (!version.startsWith("3.0."))
-      await assert.rejects(StandardEngine.open(JSON.stringify(d)), /STANDARD/);
+    assert.equal(r.execution_supported, true);
+    assert.equal(
+      r.full_openapi_support,
+      capabilitiesFor(version).full_openapi_support,
+    );
+    assert.equal(r.full_dialect_conformance_certified, false);
+    assert.equal(r.modern_execution_validated, !version.startsWith("3.0."));
+    const engine = await StandardEngine.open(JSON.stringify(d));
+    try {
+      assert.equal((await engine.plan()).cases.length > 0, true);
+    } finally {
+      await engine.close();
+    }
     d.paths["/ok"].get.responses = 42;
     assert.equal(
       (await inspectDialect(JSON.stringify(d))).structurally_valid,

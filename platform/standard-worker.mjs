@@ -34,8 +34,28 @@ import {
   stripRefSiblings,
   shieldLiterals,
 } from "./standard-document.mjs";
-import { STANDARD_CAPABILITIES } from "./standard-capabilities.mjs";
+import {
+  STANDARD_CAPABILITIES,
+  capabilitiesFor,
+} from "./standard-capabilities.mjs";
+import { contentKey } from "./standard-content.mjs";
 import { loadCore } from "./runner.mjs";
+import { encodeTransfer, decodeTransfer } from "./standard-transfer.mjs";
+import { ModernStreamState } from "./modern-stream-state.mjs";
+import {
+  encodeSetCookieHeader,
+  decodeSetCookieHeader,
+  decodeModernHeader,
+} from "./modern-media.mjs";
+import {
+  encodeModernMedia,
+  decodeModernMedia,
+  validateModernContent,
+  encodeQuerystring,
+  decodeQuerystring,
+  normalizeModernMethod,
+  sequenceMedia,
+} from "./modern-media.mjs";
 
 const METHODS = [
   "get",
@@ -54,6 +74,10 @@ let ROOT_URI = "https://moonapi.invalid/openapi.json";
 let referenceParser;
 let grantedDocuments, externalDocuments, referenceOptions;
 let grantedSources;
+let modernPrepared, modernTools;
+const streamState = new ModernStreamState();
+const wireMethod = (record) =>
+  modernPrepared ? record.method : record.method.toUpperCase();
 const literalKey = "x-moonapi-literal-" + randomUUID();
 let missingReference = false;
 const fail = (code) => {
@@ -86,15 +110,77 @@ function bounded(value) {
 }
 function jsonValue(value) {
   if (value === undefined) return undefined;
+  if (modernPrepared)
+    return decodeTransfer(encodeTransfer(value, 262144), 262144);
   const out = stringifyExact(value);
   if (Buffer.byteLength(out) > 262144) fail("STANDARD_VALUE_BUDGET");
   return parseExact(out);
 }
 function validate(schema, value, mode = "write") {
+  if (modernPrepared) return modernTools.validate(schema, value);
   if (!schema) return true;
   return validSchema(schema, value, mode);
 }
+const mediaOptions = (content = {}) =>
+  modernPrepared
+    ? {
+        resolveSchema: (s, v) => modernTools.shape(s, v),
+        validate: (s, v) => modernTools.validate(s, v),
+        rootName: modernTools.rootName(content.schema),
+      }
+    : {};
+const encodeContent = (media, value, content) =>
+  modernPrepared
+    ? encodeModernMedia(media, value, content, mediaOptions(content))
+    : encodeMedia(media, value, content);
+const decodeContent = (media, raw, content) =>
+  modernPrepared
+    ? decodeModernMedia(media, raw, content, mediaOptions(content))
+    : decodeMedia(media, raw, content);
+const contentValid = (content, value, mode = "write") =>
+  modernPrepared
+    ? validateModernContent(content, value, (s, v) => validate(s, v, mode))
+    : validate(content?.schema, value, mode);
+const parameterWire = (p) =>
+  modernPrepared
+    ? {
+        ...p,
+        modern: true,
+        contentDefinition: p.content,
+        content: Object.keys(p.content ?? {})[0],
+        schema: modernTools.shape(p.schema),
+      }
+    : { ...p, content: Object.keys(p.content ?? {})[0] };
+function sampleContent(content, media, seed, mode = "write") {
+  if (!modernPrepared)
+    return sample(content.schema, exampleValues(content), seed, mode);
+  const values = exampleValues(content);
+  for (const e of Object.values(content.examples ?? {})) {
+    const text = e?.serializedValue ?? externalExample(e, content);
+    if (text !== undefined)
+      try {
+        values.push(decodeContent(media, Buffer.from(text), content));
+      } catch {}
+  }
+  if (content.schema === undefined && content.itemSchema !== undefined) {
+    const value =
+      content.itemSchema === false
+        ? []
+        : [sample(content.itemSchema, [], seed, mode)];
+    if (contentValid(content, value, mode)) return value;
+  }
+  if (
+    !/json|xml|^text\/|form|multipart/i.test(media) &&
+    content.schema?.type === undefined
+  )
+    values.push(Buffer.from("synthetic-binary"));
+  const value = sample(content.schema, values, seed, mode);
+  if (!contentValid(content, value, mode))
+    fail("STANDARD_GENERATION_UNSAT_OR_BUDGET");
+  return value;
+}
 function sample(schema, examples, seed, mode = "write") {
+  if (modernPrepared) return modernTools.sample(schema, examples, seed);
   if (!schema) return examples[0] ?? "sample";
   for (const candidate of examples) {
     if (candidate !== undefined) {
@@ -171,6 +257,9 @@ function exampleValues(node) {
     node?.example,
     ...Object.values(node?.examples ?? {}).map((e) => {
       if (e && Object.hasOwn(e, "value")) return e.value;
+      if (modernPrepared && e && Object.hasOwn(e, "dataValue"))
+        return e.dataValue;
+      if (modernPrepared) return undefined; // serialized forms decode via their media/location
       const raw = e?.externalValue
         ? grantedSources?.get(new URL(e.externalValue, ROOT_URI).href)
         : undefined;
@@ -178,7 +267,41 @@ function exampleValues(node) {
     }),
     node?.schema?.example,
     node?.schema?.default,
+    ...(modernPrepared && Array.isArray(node?.schema?.examples)
+      ? node.schema.examples
+      : []),
   ];
+}
+function externalExample(example, node) {
+  if (!example?.externalValue) return undefined;
+  if (modernPrepared) {
+    const base =
+      modernPrepared.locations.get(example)?.base ??
+      modernPrepared.locations.get(node)?.base ??
+      ROOT_URI;
+    return modernPrepared.resourceText(example.externalValue, base);
+  }
+  return grantedSources?.get(new URL(example.externalValue, ROOT_URI).href);
+}
+function parameterExamples(parameter) {
+  const out = exampleValues(parameter);
+  if (!modernPrepared) return out;
+  for (const e of Object.values(parameter.examples ?? {})) {
+    const serialized = e?.serializedValue ?? externalExample(e, parameter);
+    if (serialized === undefined) continue;
+    try {
+      const wire = { path: {}, query: "", headers: {} };
+      if (parameter.in === "header")
+        wire.headers[parameter.name.toLowerCase()] = serialized;
+      else if (parameter.in === "cookie") wire.headers.cookie = serialized;
+      else if (parameter.in === "path") wire.path[parameter.name] = serialized;
+      else wire.query = serialized;
+      out.push(
+        deserializeParameter(parameterWire(parameter), wire, mediaOptions()),
+      );
+    } catch {}
+  }
+  return out;
 }
 // Constraint-directed candidates complement library sampling. Each candidate is
 // independently validated before its valid/invalid label is assigned.
@@ -268,6 +391,7 @@ function metadata(id, op, item, context = definition) {
       explode: p.explode,
       allowReserved: p.allowReserved ?? false,
       content: Object.keys(p.content ?? {})[0],
+      ...(modernPrepared ? { modern: true, contentDefinition: p.content } : {}),
     })),
     request_media: media,
     binary_fields: Object.fromEntries(
@@ -282,7 +406,15 @@ function metadata(id, op, item, context = definition) {
       op.servers ?? item.servers ?? context.servers ?? [{ url: "/" }],
     ),
     security: jsonValue(security),
-    security_schemes: jsonValue(context.components?.securitySchemes ?? {}),
+    security_schemes: jsonValue(
+      modernPrepared
+        ? (modernPrepared.operationCatalog.find((r) => r.id === id)
+            ?.securitySchemes ?? modernPrepared.contextSchemes(context))
+        : (context.components?.securitySchemes ?? {}),
+    ),
+    ...(modernPrepared
+      ? { openapi_version: modernPrepared.version, modern: true }
+      : {}),
     blockers: [...new Set(blockers)],
     callbacks: Object.keys(op.callbacks ?? {}),
   };
@@ -297,6 +429,76 @@ async function compile({
   if (root.hash || root.username || root.password)
     fail("STANDARD_DOCUMENT_URI");
   ROOT_URI = root.href;
+  const native = parseSource(source, true);
+  if (/^3\.[12]\.\d+$/.test(native.openapi ?? "")) {
+    // Do not charge legacy 3.0 workers for loading the native modern compiler.
+    // Keep loading inside the same bounded worker, not on the HTTP event loop.
+    const [{ prepareModernDocument }, { modernSchemaTools }] =
+      await Promise.all([
+        import("./modern-document.mjs"),
+        import("./modern-generation.mjs"),
+      ]);
+    modernPrepared = await prepareModernDocument(source, {
+      documents,
+      documentURI: ROOT_URI,
+    });
+    api = definition = modernPrepared.definition;
+    ROOT_URI = modernPrepared.documentURI;
+    modernTools = modernSchemaTools(modernPrepared);
+    grantedSources = new Map(Object.entries(documents));
+    for (const root of modernPrepared.schemaRoots)
+      modernTools.compile(root.schema);
+    operations = new Map();
+    const summaries = [];
+    for (const r of modernPrepared.operations) {
+      if (r.zone !== "paths") continue;
+      const op = { ...r.op },
+        merged = new Map();
+      // TRACE has no request content semantics; HTTP prohibits generating it.
+      // Retain the source document, but do not generate or claim to send a body.
+      if (r.method === "TRACE") delete op.requestBody;
+      for (const p of [...(r.item.parameters ?? []), ...(op.parameters ?? [])])
+        merged.set(
+          p.in + ":" + (p.in === "header" ? p.name.toLowerCase() : p.name),
+          { ...p },
+        );
+      op.allParameters = [...merged.values()].filter(
+        (p) =>
+          !(
+            p.in === "header" &&
+            ["accept", "content-type", "authorization"].includes(
+              p.name.toLowerCase(),
+            )
+          ),
+      );
+      for (const p of op.allParameters)
+        if (p.schema === undefined && p.content)
+          p.schema = Object.values(p.content)[0]?.schema;
+      operations.set(r.id, {
+        ...r,
+        op,
+        definition: r.context,
+        sourceURI: r.baseURI ?? modernPrepared.documentURI,
+      });
+      summaries.push({
+        ...metadata(r.id, op, r.item, r.context),
+        method: r.method,
+        path: r.route,
+      });
+    }
+    return {
+      operations: summaries,
+      webhooks:
+        modernPrepared.webhookOperations?.map((r) => ({
+          id: r.id,
+          name: r.route,
+          method: r.method,
+        })) ?? [],
+      document_valid: true,
+      ...capabilitiesFor(modernPrepared.version),
+    };
+  }
+  modernPrepared = modernTools = undefined;
   const doc = parseSource(source);
   bounded(doc);
   if (!/^3\.0\.\d+$/.test(doc.openapi ?? ""))
@@ -438,6 +640,7 @@ async function compile({
   return {
     operations: summaries,
     document_valid: true,
+    openapi_version: doc.openapi,
     ...STANDARD_CAPABILITIES,
   };
 }
@@ -448,15 +651,13 @@ function variants({ id, seed }) {
   const parameters = op.allParameters.map((p) => ({
     name: p.name,
     in: p.in,
-    value: sample(p.schema, exampleValues(p), seed),
+    value: sample(p.schema, parameterExamples(p), seed),
   }));
   const bodies = Object.keys(op.requestBody?.content ?? {});
   const out = [];
   for (const media of bodies.length ? bodies : [null]) {
     const content = op.requestBody?.content[media];
-    const value = media
-      ? sample(content.schema, exampleValues(content), seed)
-      : undefined;
+    const value = media ? sampleContent(content, media, seed) : undefined;
     const positive = {
       operation_id: id,
       parameters,
@@ -467,24 +668,42 @@ function variants({ id, seed }) {
     };
     out.push(positive);
     // Every mutation is revalidated as genuinely invalid before it can be sent.
-    if (media && content.schema) {
+    if (
+      media &&
+      (content.schema !== undefined || content.itemSchema !== undefined)
+    ) {
       const candidates = [null, "invalid", 123, [], {}, true];
       if (value && typeof value === "object" && !Array.isArray(value)) {
-        for (const key of content.schema.required ?? []) {
+        for (const key of content.schema?.required ?? []) {
           const v = { ...value };
           delete v[key];
           candidates.unshift(v);
         }
       }
       const representable = (v) =>
-        /json/.test(media) ||
-        (["application/x-www-form-urlencoded", "multipart/form-data"].includes(
-          media,
-        )
-          ? v !== null && typeof v === "object" && !Array.isArray(v)
-          : typeof v === "string");
+        modernPrepared
+          ? (() => {
+              try {
+                encodeModernMedia(media, v, content, {
+                  ...mediaOptions(content),
+                  validate: undefined,
+                });
+                return true;
+              } catch {
+                return false;
+              }
+            })()
+          : /json/.test(media) ||
+            ([
+              "application/x-www-form-urlencoded",
+              "multipart/form-data",
+            ].includes(media)
+              ? v !== null && typeof v === "object" && !Array.isArray(v)
+              : typeof v === "string");
+      if (content.itemSchema !== undefined)
+        candidates.push([null], ["invalid"], [123], [{}], [true]);
       const bad = candidates.find(
-        (v) => representable(v) && !validate(content.schema, v),
+        (v) => representable(v) && !contentValid(content, v),
       );
       if (bad !== undefined)
         out.push({
@@ -493,9 +712,9 @@ function variants({ id, seed }) {
           negative: true,
           reason: "body_schema",
         });
-      for (const candidate of boundaryValues(content.schema, value)) {
+      for (const candidate of boundaryValues(content.schema ?? {}, value)) {
         if (representable(candidate)) {
-          const valid = validate(content.schema, candidate);
+          const valid = contentValid(content, candidate);
           out.push({
             ...positive,
             body: jsonValue(candidate),
@@ -639,19 +858,22 @@ function requestContract({ id, test }) {
       (v) => v.name === p.name && v.in === p.in,
     );
     if (!entry && p.required) return { valid: false };
-    if (entry && !validate(p.schema, entry.value)) return { valid: false };
+    if (
+      entry &&
+      !(modernPrepared && p.content
+        ? contentValid(Object.values(p.content)[0], entry.value)
+        : validate(p.schema, entry.value))
+    )
+      return { valid: false };
   }
   if (!Object.hasOwn(test, "body")) return { valid: !op.requestBody?.required };
   const media = op.requestBody?.content[test.media];
-  return { valid: Boolean(media) && validate(media?.schema, test.body) };
+  return { valid: Boolean(media) && contentValid(media, test.body) };
 }
 function responseContract({ id, status, headers, body, empty = false }) {
   const { op, method } = operations.get(id) ?? {};
   if (!op) fail("STANDARD_UNKNOWN_OPERATION");
-  const response =
-    op.responses[String(status)] ??
-    op.responses[String(status)[0] + "XX"] ??
-    op.responses.default;
+  const response = responseFor(op, status);
   if (!response) return { valid: false, code: "undeclared_status" };
   for (const [name, header] of Object.entries(response.headers ?? {})) {
     if (name.toLowerCase() === "content-type") continue;
@@ -662,36 +884,48 @@ function responseContract({ id, status, headers, body, empty = false }) {
       try {
         const media = Object.keys(header.content ?? {})[0];
         const rule = header.schema ?? header.content?.[media]?.schema;
-        const decoded = media
-          ? decodeMedia(media, Buffer.from(value), header.content[media])
-          : headerValue(rule, value, header.explode);
+        const decoded = modernPrepared
+          ? name.toLowerCase() === "set-cookie"
+            ? decodeSetCookieHeader(header, value, mediaOptions())
+            : decodeModernHeader(header, value, mediaOptions())
+          : media
+            ? decodeContent(media, Buffer.from(value), header.content[media])
+            : headerValue(
+                modernPrepared ? modernTools.shape(rule) : rule,
+                value,
+                header.explode,
+              );
         if (!validate(rule, decoded, "read"))
           return { valid: false, code: "response_header_schema" };
-      } catch {
+      } catch (error) {
+        if (/BUDGET/.test(error.message)) throw error;
         return { valid: false, code: "response_header_schema" };
       }
     }
   }
-  if (method === "head" || [204, 304].includes(status))
+  if (wireMethod(operations.get(id)) === "HEAD" || [204, 304].includes(status))
     return { valid: empty, code: empty ? "" : "unexpected_body" };
   const content = response.content;
   if (!content || Object.keys(content).length === 0)
-    return { valid: true, code: "" };
+    return {
+      valid: true,
+      code: "",
+      ...(modernPrepared && op.responses === undefined
+        ? { unconstrained: true }
+        : {}),
+    };
   const media = (headers["content-type"] ?? "")
     .split(";")[0]
     .trim()
     .toLowerCase();
-  const key =
-    Object.keys(content).find((k) => k === media) ??
-    Object.keys(content).find((k) => k === media.split("/")[0] + "/*") ??
-    (content["*/*"] ? "*/*" : undefined);
+  const key = contentKey(content, headers["content-type"]);
   if (!key) return { valid: false, code: "response_media" };
-  const valid = validate(content[key].schema, body, "read");
+  const valid = contentValid(content[key], body, "read");
   return { valid, code: valid ? "" : "response_schema" };
 }
 function profiles() {
   const summary = (schema) => {
-    const s = effective(schema);
+    const s = modernPrepared ? modernTools.shape(schema) : effective(schema);
     return {
       type: s.type,
       format: s.format,
@@ -702,7 +936,7 @@ function profiles() {
   return [...operations].map(([id, { op, route, method }]) => ({
     id,
     path: route,
-    method: method.toUpperCase(),
+    method: wireMethod({ method }),
     parameters: op.allParameters.map((p) => ({
       name: p.name,
       in: p.in,
@@ -712,7 +946,7 @@ function profiles() {
     requests: Object.entries(op.requestBody?.content || {}).map(
       ([media, c]) => ({ media, ...summary(c.schema) }),
     ),
-    responses: Object.entries(op.responses).map(([status, r]) => ({
+    responses: Object.entries(op.responses ?? {}).map(([status, r]) => ({
       status,
       location: !!Object.keys(r.headers || {}).find(
         (h) => h.toLowerCase() === "location",
@@ -740,24 +974,88 @@ function wireRequest({ id, test }) {
   };
   operation.parameters = operation.parameters.map((p) => ({
     ...p,
-    schema: record.op.allParameters.find(
-      (x) => x.in === p.in && x.name === p.name,
-    )?.schema,
+    schema: (modernPrepared ? modernTools.shape : (x) => x)(
+      record.op.allParameters.find((x) => x.in === p.in && x.name === p.name)
+        ?.schema,
+    ),
   }));
-  for (const c of Object.values(operation.body_content || {}))
-    for (const e of Object.values(c.encoding || {}))
-      for (const [name, h] of Object.entries(e.headers || {})) {
-        if (name.toLowerCase() === "content-type") continue;
-        const mt = Object.keys(h.content || {})[0],
-          rule = h.schema || h.content?.[mt]?.schema;
-        const value = sample(rule, exampleValues(h), 42, "write");
-        h.example = value;
-        h.__wireValue = serializeParameter(
-          { ...h, name, in: "header", schema: rule, content: mt },
-          value,
-        )[1];
-      }
-  const result = encodeRequest(operation, test);
+  function preparedEncoding(
+    e,
+    values,
+    depth = 0,
+    nested = /^multipart\//i.test(e.contentType ?? ""),
+  ) {
+    if (depth > 8) fail("MODERN_MIME_DEPTH_BUDGET");
+    const copy = { ...e, headers: { ...e.headers } };
+    for (const [name, source] of Object.entries(e.headers || {})) {
+      if (name.toLowerCase() === "content-type") continue;
+      const h = { ...source };
+      copy.headers[name] = h;
+      const mt = Object.keys(h.content || {})[0],
+        rule = h.schema ?? h.content?.[mt]?.schema;
+      const value = sample(rule, exampleValues(h), 42, "write");
+      h.example = value;
+      h.__wireValue = serializeParameter(
+        {
+          ...h,
+          name,
+          in: "header",
+          schema: modernPrepared ? modernTools.shape(rule, value) : rule,
+          content: mt,
+          contentDefinition: h.content,
+          modern: !!modernPrepared,
+        },
+        value,
+        mediaOptions(),
+      )[1];
+    }
+    if (!nested) return copy;
+    if (e.encoding)
+      copy.encoding = Object.fromEntries(
+        Object.entries(e.encoding).map(([k, v]) => {
+          const active = values
+            .filter(
+              (x) => x !== null && typeof x === "object" && Object.hasOwn(x, k),
+            )
+            .map((x) => x[k]);
+          return [
+            k,
+            active.length ? preparedEncoding(v, active, depth + 1) : v,
+          ];
+        }),
+      );
+    if (e.prefixEncoding)
+      copy.prefixEncoding = e.prefixEncoding.map((v, i) => {
+        const active = values
+          .filter((x) => Array.isArray(x) && i < x.length)
+          .map((x) => x[i]);
+        return active.length ? preparedEncoding(v, active, depth + 1) : v;
+      });
+    if (e.itemEncoding) {
+      const active = values
+        .filter(Array.isArray)
+        .flatMap((x) => x.slice(e.prefixEncoding?.length ?? 0));
+      if (active.length)
+        copy.itemEncoding = preparedEncoding(e.itemEncoding, active, depth + 1);
+    }
+    return copy;
+  }
+  if (operation.body_content)
+    operation.body_content = Object.fromEntries(
+      Object.entries(operation.body_content).map(([key, c]) => [
+        key,
+        key === test.media && /^multipart\//i.test(key)
+          ? preparedEncoding(c, [test.body], 0, true)
+          : c,
+      ]),
+    );
+  // Intentional negative instances must remain serializable. Only their
+  // outbound schema assertion is bypassed; wire safety/budgets, independent
+  // validateRequest classification and all response decoding stay strict.
+  const result = encodeRequest(operation, test, {
+    ...mediaOptions(),
+    ...(test.negative ? { validate: undefined } : {}),
+  });
   return { ...result, body: result.body?.toString("base64") };
 }
 function wireRequestContract({ id, route, headers, raw, decodedBody }) {
@@ -784,8 +1082,9 @@ function wireRequestContract({ id, route, headers, raw, decodedBody }) {
     let value;
     try {
       value = deserializeParameter(
-        { ...p, content: Object.keys(p.content || {})[0] },
+        parameterWire(p),
         { path, query: url.search, headers },
+        mediaOptions(),
       );
     } catch {
       return { valid: false };
@@ -799,19 +1098,14 @@ function wireRequestContract({ id, route, headers, raw, decodedBody }) {
         .trim()
         .toLowerCase(),
       content = record.op.requestBody.content;
-    const key =
-      Object.keys(content).find((k) => k.toLowerCase() === media) ||
-      Object.keys(content).find(
-        (k) => k.toLowerCase() === media.split("/")[0] + "/*",
-      ) ||
-      (content["*/*"] ? "*/*" : undefined);
+    const key = contentKey(content, headers["content-type"]);
     if (!key) return { valid: false };
     try {
       test.media = key;
       test.body =
         decodedBody !== undefined
           ? decodedBody
-          : decodeMedia(
+          : decodeContent(
               headers["content-type"],
               Buffer.from(raw, "base64"),
               content[key],
@@ -825,34 +1119,31 @@ function wireRequestContract({ id, route, headers, raw, decodedBody }) {
 function wireResponse({ id, status, headers, raw }) {
   const { op } = operations.get(id) ?? {};
   if (!op) fail("STANDARD_UNKNOWN_OPERATION");
-  const response =
-    op.responses[status] ??
-    op.responses[String(status)[0] + "XX"] ??
-    op.responses.default;
+  const response = responseFor(op, status);
   const media = (headers["content-type"] || "")
     .split(";")[0]
     .trim()
     .toLowerCase();
-  const key =
-    Object.keys(response?.content || {}).find((k) => k === media) ||
-    Object.keys(response?.content || {}).find(
-      (k) => k === media.split("/")[0] + "/*",
-    ) ||
-    (response?.content?.["*/*"] ? "*/*" : undefined);
+  const key = contentKey(response?.content, headers["content-type"]);
   let body = "",
     contract;
   const bytes = Buffer.from(raw, "base64");
   try {
     if (key && bytes.length)
-      body = decodeMedia(headers["content-type"], bytes, response.content[key]);
+      body = decodeContent(
+        headers["content-type"],
+        bytes,
+        response.content[key],
+      );
     else if (
       key &&
       /json/.test(media) &&
-      operations.get(id).method !== "head" &&
+      wireMethod(operations.get(id)) !== "HEAD" &&
       ![204, 304].includes(status)
     )
       throw new Error();
-  } catch {
+  } catch (error) {
+    if (/BUDGET/.test(error.message)) throw error;
     return {
       body: null,
       contract: {
@@ -872,14 +1163,53 @@ function wireResponse({ id, status, headers, raw }) {
   });
   return { body, contract };
 }
+function streamOpen({ id, stream_id, status, headers }) {
+  if (!modernPrepared || !sequenceMedia(headers["content-type"]))
+    return { opened: false };
+  const record = operations.get(id),
+    response = responseFor(record.op, status),
+    media = (headers["content-type"] ?? "").split(";")[0].trim().toLowerCase();
+  const content = response?.content ?? {},
+    key = contentKey(content, headers["content-type"]);
+  if (!key || wireMethod(record) === "HEAD" || [204, 304].includes(status))
+    return { opened: false };
+  return streamState.open({
+    id: stream_id,
+    media: headers["content-type"],
+    content: content[key],
+    options: { ...mediaOptions(content[key]), timeout: 30000 },
+  });
+}
 function responseFor(op, status) {
+  if (modernPrepared && op.responses === undefined) return {};
   return (
-    op.responses[status] ??
-    op.responses[String(status)[0] + "XX"] ??
-    op.responses.default
+    op.responses?.[status] ??
+    op.responses?.[String(status)[0] + "XX"] ??
+    op.responses?.default
   );
 }
 async function targetOperation(link, base = ROOT_URI) {
+  if (modernPrepared) {
+    const r = Object.hasOwn(link, "operationId")
+      ? modernPrepared.resolveOperationId(link.operationId)
+      : modernPrepared.resolveOperationRef(link.operationRef, base);
+    if (!r || r.zone !== "paths") return undefined;
+    if (operations.has(r.id)) return r.id;
+    const op = {
+      ...r.op,
+      allParameters: r.allParameters.map((p) => ({
+        ...p,
+        schema: p.schema ?? Object.values(p.content ?? {})[0]?.schema,
+      })),
+    };
+    operations.set(r.id, {
+      ...r,
+      op,
+      definition: r.context,
+      sourceURI: r.baseURI,
+    });
+    return r.id;
+  }
   if (link.operationId)
     return operations.has(link.operationId) ? link.operationId : undefined;
   const url = new URL(link.operationRef, base);
@@ -1002,7 +1332,7 @@ async function linked({ id, context, seed }) {
       test,
       operation: {
         ...metadata(target, r.op, r.item || {}, r.definition || definition),
-        method: r.method.toUpperCase(),
+        method: wireMethod(r),
         path: r.route,
       },
       server: link.server,
@@ -1010,6 +1340,18 @@ async function linked({ id, context, seed }) {
     });
   }
   return out;
+}
+function itemMethods(item) {
+  return [...METHODS, ...(modernPrepared ? ["query"] : [])]
+    .filter((m) => item?.[m])
+    .map((m) => ({ method: m.toUpperCase(), op: item[m] }))
+    .concat(
+      modernPrepared
+        ? Object.entries(item?.additionalOperations ?? {}).map(
+            ([method, op]) => ({ method, op }),
+          )
+        : [],
+    );
 }
 function callbacks({ id }) {
   const { op } = operations.get(id) ?? {};
@@ -1021,7 +1363,7 @@ function callbacks({ id }) {
         out.push({
           name,
           expression: expr,
-          methods: METHODS.filter((m) => item[m]).map((m) => m.toUpperCase()),
+          methods: itemMethods(item).map((r) => r.method),
         });
   return out;
 }
@@ -1033,10 +1375,42 @@ function callbackContract({
   seed,
   credentials = {},
 }) {
-  const { op } = operations.get(id) ?? {},
+  const record = operations.get(id),
+    { op } = record ?? {},
     item = op?.callbacks?.[name]?.[expr],
-    operation = item?.[incoming.method.toLowerCase()];
+    operation = itemMethods(item).find((r) => r.method === incoming.method)?.op;
   if (!operation) return { valid: false, code: "callback_method", status: 405 };
+  return inboundContract({
+    operation,
+    item,
+    incoming,
+    seed,
+    credentials,
+    context: record.definition ?? definition,
+  });
+}
+function webhookContract({ name, incoming, seed, credentials = {} }) {
+  const record = modernPrepared?.webhookOperations.find(
+    (r) => r.route === name && r.method === incoming.method,
+  );
+  if (!record) return { valid: false, code: "webhook_method", status: 405 };
+  return inboundContract({
+    operation: record.op,
+    item: record.item,
+    incoming,
+    seed,
+    credentials,
+    context: record.context,
+  });
+}
+function inboundContract({
+  operation,
+  item,
+  incoming,
+  seed,
+  credentials,
+  context,
+}) {
   const headers = Object.fromEntries(
       Object.entries(incoming.headers).map(([k, v]) => [
         k.toLowerCase(),
@@ -1044,15 +1418,35 @@ function callbackContract({
       ]),
     ),
     url = new URL(incoming.url, "http://127.0.0.1");
-  const security = operation.security ?? definition.security ?? [];
+  const security = operation.security ?? context.security ?? [];
+  const schemes = modernPrepared
+    ? (modernPrepared.operationCatalog.find(
+        (r) => r.op === operation && r.context === context,
+      )?.securitySchemes ?? modernPrepared.contextSchemes(context))
+    : (context.components?.securitySchemes ?? {});
   if (
     security.length &&
     !security.some((r) =>
       Object.entries(r).every(([name, scopes]) => {
-        const s = definition.components?.securitySchemes?.[name],
+        const s = schemes[name],
           c = Object.hasOwn(credentials, name) ? credentials[name] : undefined;
-        if (!s || !c || !scopes.every((x) => c.scopes?.includes(x)))
+        if (
+          !s ||
+          !c ||
+          !scopes.every((x) =>
+            (["oauth2", "openIdConnect"].includes(s.type)
+              ? c.scopes
+              : c.roles
+            )?.includes(x),
+          )
+        )
           return false;
+        if (s.type === "mutualTLS")
+          return (
+            incoming.peer_authorized === true &&
+            (!c.acceptedFingerprints ||
+              c.acceptedFingerprints.includes(incoming.peer_fingerprint))
+          );
         if (s.type === "apiKey") {
           const value =
             s.in === "query"
@@ -1087,14 +1481,18 @@ function callbackContract({
     params.set(p.in + ":" + p.name, p);
   for (const p of params.values()) {
     const mt = Object.keys(p.content || {})[0],
-      rule = p.schema || p.content?.[mt]?.schema;
+      rule = p.schema ?? p.content?.[mt]?.schema;
     let v;
     try {
       v = deserializeParameter(
-        { ...p, schema: rule, content: mt },
+        modernPrepared
+          ? parameterWire({ ...p, schema: rule })
+          : { ...p, schema: rule, content: mt },
         { query: url.search, headers, path: incoming.path || {} },
+        mediaOptions(),
       );
-    } catch {
+    } catch (error) {
+      if (/BUDGET/.test(error.message)) throw error;
       return { valid: false, code: "callback_parameter", status: 400 };
     }
     if (v === undefined) {
@@ -1112,33 +1510,38 @@ function callbackContract({
   if (body?.required && !hasBody)
     return { valid: false, code: "callback_body_required", status: 400 };
   if (hasBody && body) {
-    const key =
-      Object.keys(body.content).find((k) => k === mt) ||
-      Object.keys(body.content).find((k) => k === mt.split("/")[0] + "/*") ||
-      (body.content["*/*"] ? "*/*" : undefined);
+    const key = contentKey(body.content, headers["content-type"]);
     if (!key) return { valid: false, code: "callback_media", status: 400 };
     try {
-      const value = decodeMedia(
+      const value = decodeContent(
         headers["content-type"],
         bytes,
         body.content[key],
       );
-      if (!validate(body.content[key].schema, value))
+      if (!contentValid(body.content[key], value))
         return { valid: false, code: "callback_body_schema", status: 400 };
-    } catch {
+    } catch (error) {
+      if (/BUDGET/.test(error.message)) throw error;
       return { valid: false, code: "callback_body_encoding", status: 400 };
     }
   }
   const key =
-      Object.keys(operation.responses).find((k) => /^2\d\d$/.test(k)) ||
-      (operation.responses["2XX"] ? "2XX" : undefined) ||
-      Object.keys(operation.responses).find((k) => /^[1-5]\d\d$/.test(k)) ||
+      Object.keys(operation.responses ?? {}).find((k) => /^2\d\d$/.test(k)) ||
+      (operation.responses?.["2XX"] ? "2XX" : undefined) ||
+      Object.keys(operation.responses ?? {}).find((k) =>
+        /^[1-5]\d\d$/.test(k),
+      ) ||
       "default",
-    response = operation.responses[key];
+    response =
+      modernPrepared && operation.responses === undefined
+        ? {}
+        : operation.responses[key];
   if (!response) fail("STANDARD_CALLBACK_RESPONSE");
   const status =
       key === "default"
-        ? 200
+        ? modernPrepared && operation.responses === undefined
+          ? 204
+          : 200
         : key.endsWith("XX")
           ? Number(key[0]) * 100
           : Number(key),
@@ -1147,20 +1550,23 @@ function callbackContract({
   for (const [k, h] of Object.entries(response.headers || {}))
     if (k.toLowerCase() !== "content-type") {
       const mt = Object.keys(h.content || {})[0],
-        rule = h.schema || h.content?.[mt]?.schema,
+        rule = h.schema ?? h.content?.[mt]?.schema,
         value = sample(rule, exampleValues(h), seed, "read");
-      outHeaders[k] = serializeParameter(
-        { ...h, name: k, in: "header", schema: rule, content: mt },
-        value,
-      )[1];
+      outHeaders[k] =
+        modernPrepared && k.toLowerCase() === "set-cookie"
+          ? encodeSetCookieHeader(h, value, mediaOptions())
+          : serializeParameter(
+              { ...h, name: k, in: "header", schema: rule, content: mt },
+              value,
+            )[1];
     }
   const media = Object.keys(response.content || {})[0];
   if (media && ![204, 304].includes(status) && incoming.method !== "HEAD") {
     const c = response.content[media],
-      v = sample(c.schema, exampleValues(c), seed, "read");
-    if (!validate(c.schema, v, "read"))
+      v = sampleContent(c, media, seed, "read");
+    if (!contentValid(c, v, "read"))
       fail("STANDARD_CALLBACK_RESPONSE_GENERATION");
-    encoded = encodeMedia(media, v, c);
+    encoded = encodeContent(media, v, c);
     outHeaders["content-type"] = encoded.contentType;
   }
   return {
@@ -1171,43 +1577,63 @@ function callbackContract({
   };
 }
 parentPort.on("message", async (message) => {
-  const { id, action, args } = parseExact(message);
+  const { id, action, args } = decodeTransfer(message);
   try {
     const value =
       action === "compile"
         ? await compile(args)
-        : action === "profiles"
-          ? profiles()
-          : action === "variants"
-            ? variants(args)
-            : action === "request"
-              ? requestContract(args)
-              : action === "response"
-                ? responseContract(args)
-                : action === "encode"
-                  ? wireRequest(args)
-                  : action === "decode"
-                    ? wireResponse(args)
-                    : action === "links"
-                      ? await linked(args)
-                      : action === "callbacks"
-                        ? callbacks(args)
-                        : action === "callback"
-                          ? callbackContract(args)
-                          : action === "wire-request"
-                            ? wireRequestContract(args)
-                            : fail("STANDARD_UNKNOWN_ACTION");
-    parentPort.postMessage(stringifyExact({ id, ok: true, value }));
+        : action === "stream-open"
+          ? streamOpen(args)
+          : action === "stream-chunk"
+            ? streamState.chunk(args.stream_id, args.chunk)
+            : action === "stream-end"
+              ? streamState.end(args.stream_id)
+              : action === "stream-abort"
+                ? streamState.abort(args.stream_id)
+                : action === "profiles"
+                  ? profiles()
+                  : action === "variants"
+                    ? variants(args)
+                    : action === "request"
+                      ? requestContract(args)
+                      : action === "response"
+                        ? responseContract(args)
+                        : action === "encode"
+                          ? wireRequest(args)
+                          : action === "decode"
+                            ? wireResponse(args)
+                            : action === "links"
+                              ? await linked(args)
+                              : action === "callbacks"
+                                ? callbacks(args)
+                                : action === "webhooks"
+                                  ? (modernPrepared?.webhookOperations.map(
+                                      (r) => ({
+                                        name: r.route,
+                                        id: r.id,
+                                        method: r.method,
+                                      }),
+                                    ) ?? [])
+                                  : action === "webhook"
+                                    ? webhookContract(args)
+                                    : action === "callback"
+                                      ? callbackContract(args)
+                                      : action === "wire-request"
+                                        ? wireRequestContract(args)
+                                        : fail("STANDARD_UNKNOWN_ACTION");
+    parentPort.postMessage(encodeTransfer({ id, ok: true, value }));
   } catch (error) {
     // Library exceptions can contain document fragments, filesystem paths,
     // examples, or credentials. Never propagate their messages/stacks.
     parentPort.postMessage(
-      stringifyExact({
+      encodeTransfer({
         id,
         ok: false,
         code: missingReference
           ? "STANDARD_REFERENCE_NOT_GRANTED"
-          : /^STANDARD_[A-Z_]+$/.test(error.code ?? error.message ?? "")
+          : /^(?:STANDARD|MODERN)_[A-Z0-9_]+$/.test(
+                error.code ?? error.message ?? "",
+              )
             ? (error.code ?? error.message)
             : "STANDARD_VALIDATION_ERROR",
       }),

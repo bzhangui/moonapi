@@ -3,7 +3,19 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import formats from "ajv-formats/dist/formats.js";
 import { numeric, decimal, compare, equal, shadow } from "./standard-value.mjs";
-import { specializeModernResources } from "./modern-resources.mjs";
+import {
+  specializeModernResources,
+  MODERN_DIALECTS,
+} from "./modern-resources.mjs";
+const metadata = new Ajv2020({
+  strictSchema: false,
+  strictTypes: false,
+  strictTuples: false,
+  strictRequired: false,
+  validateFormats: false,
+  logger: false,
+  ownProperties: true,
+}).getSchema(MODERN_DIALECTS[0]);
 
 const singles = [
   "not",
@@ -54,6 +66,9 @@ const vocabulary = new Set(
     "content",
   ].map((v) => "https://json-schema.org/draft/2020-12/vocab/" + v),
 );
+vocabulary.add("https://spec.openapis.org/oas/3.1/vocab/base");
+vocabulary.add("https://spec.openapis.org/oas/3.2/vocab/base");
+const binary = (value) => Buffer.isBuffer(value) || value instanceof Uint8Array;
 const invalid = () => {
   throw new Error("MODERN_SCHEMA_INVALID_OR_UNGRANTED");
 };
@@ -64,7 +79,9 @@ const has = (o, k) => Object.hasOwn(o, k);
 const escape = (s) => s.replace(/~/g, "~0").replace(/\//g, "~1");
 function bounded(value, state = { nodes: 0 }, depth = 0) {
   if (++state.nodes > 50000 || depth > 64) budget();
-  if (numeric(value)) {
+  if (binary(value)) {
+    if (value.byteLength > 1048576) budget();
+  } else if (numeric(value)) {
     const [coefficient, exponent] = decimal(value);
     if (
       String(coefficient < 0n ? -coefficient : coefficient).length > 4096 ||
@@ -75,6 +92,7 @@ function bounded(value, state = { nodes: 0 }, depth = 0) {
     for (const v of Object.values(value)) bounded(v, state, depth + 1);
 }
 function canonical(value) {
+  if (binary(value)) return "b" + Buffer.from(value).toString("hex");
   if (numeric(value)) {
     const [c, e] = decimal(value);
     return "n" + c + "e" + e;
@@ -95,11 +113,13 @@ function canonical(value) {
 const type = (v) =>
   v === null
     ? "null"
-    : numeric(v)
-      ? "number"
-      : Array.isArray(v)
-        ? "array"
-        : typeof v;
+    : binary(v)
+      ? "binary"
+      : numeric(v)
+        ? "number"
+        : Array.isArray(v)
+          ? "array"
+          : typeof v;
 function numericRule(rule, value) {
   if (has(rule, "minimum") && compare(value, rule.minimum) < 0) return false;
   if (has(rule, "maximum") && compare(value, rule.maximum) > 0) return false;
@@ -122,11 +142,115 @@ function numericRule(rule, value) {
   }
   return true;
 }
-export function compileExactModern(
-  schema,
-  documents = {},
-  { assertFormats = false } = {},
-) {
+function openAPIAnnotations(schema, dialect) {
+  const modern = dialect.replace(/#$/, "");
+  if (!modern.startsWith("https://spec.openapis.org/oas/")) return;
+  const v32 = modern.includes("/3.2/");
+  const record = (value, allowed) =>
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    !numeric(value) &&
+    Object.keys(value).every(
+      (key) => allowed.includes(key) || key.startsWith("x-"),
+    );
+  const stringFields = (value, names) =>
+    names.every((name) => !has(value, name) || typeof value[name] === "string");
+  if (has(schema, "xml")) {
+    const xml = schema.xml;
+    if (
+      !record(xml, [
+        "name",
+        "namespace",
+        "prefix",
+        "attribute",
+        "wrapped",
+        ...(v32 ? ["nodeType"] : []),
+      ]) ||
+      !stringFields(xml, ["name", "namespace", "prefix"]) ||
+      ["attribute", "wrapped"].some(
+        (name) => has(xml, name) && typeof xml[name] !== "boolean",
+      )
+    )
+      invalid();
+    if (
+      has(xml, "namespace") &&
+      (!/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(xml.namespace) ||
+        /[\s\u0000-\u001f<>"{}|\\^`]/u.test(xml.namespace))
+    )
+      invalid();
+    if (
+      has(xml, "nodeType") &&
+      (!["element", "attribute", "text", "cdata", "none"].includes(
+        xml.nodeType,
+      ) ||
+        has(xml, "attribute") ||
+        has(xml, "wrapped"))
+    )
+      invalid();
+  }
+  if (has(schema, "externalDocs")) {
+    const docs = schema.externalDocs;
+    if (
+      !record(docs, ["url", "description"]) ||
+      typeof docs.url !== "string" ||
+      !stringFields(docs, ["description"]) ||
+      /[\s\u0000-\u001f<>"{}|\\^`]/u.test(docs.url)
+    )
+      invalid();
+  }
+  if (has(schema, "discriminator")) {
+    const d = schema.discriminator;
+    if (
+      !record(d, [
+        "propertyName",
+        "mapping",
+        ...(v32 ? ["defaultMapping"] : []),
+      ]) ||
+      typeof d.propertyName !== "string" ||
+      !stringFields(d, ["defaultMapping"])
+    )
+      invalid();
+    if (
+      has(d, "mapping") &&
+      (!d.mapping ||
+        typeof d.mapping !== "object" ||
+        Array.isArray(d.mapping) ||
+        numeric(d.mapping) ||
+        Object.values(d.mapping).some((value) => typeof value !== "string"))
+    )
+      invalid();
+  }
+}
+export function compileExactModern(schema, documents = {}, options = {}) {
+  const {
+    assertFormats = false,
+    schemaRegistry = {},
+    schemaDialects,
+    rootURI,
+    dialect = MODERN_DIALECTS[0],
+    mode = "annotation",
+    directionPolicy = "annotation",
+  } = options;
+  if (
+    typeof assertFormats !== "boolean" ||
+    !["annotation", "write", "read"].includes(mode) ||
+    !["annotation", "reject-forbidden"].includes(directionPolicy)
+  )
+    throw new Error("MODERN_SCHEMA_OPTIONS");
+  if (schemaDialects !== undefined && typeof schemaDialects?.get !== "function")
+    throw new Error("MODERN_SCHEMA_OPTIONS");
+  const registry =
+    schemaRegistry instanceof Map
+      ? [...schemaRegistry.values()]
+      : Object.values(schemaRegistry ?? {});
+  if (
+    !schemaRegistry ||
+    typeof schemaRegistry !== "object" ||
+    Array.isArray(schemaRegistry) ||
+    registry.length > 4096
+  )
+    throw new Error("MODERN_SCHEMA_REFERENCES");
   if (
     !documents ||
     Array.isArray(documents) ||
@@ -134,22 +258,19 @@ export function compileExactModern(
     Object.keys(documents).length > 16
   )
     throw new Error("MODERN_SCHEMA_REFERENCES");
-  const ajv = new Ajv2020({
-    strictSchema: false,
-    strictTypes: false,
-    strictTuples: false,
-    strictRequired: false,
-    validateFormats: false,
-    logger: false,
-    ownProperties: true,
-  });
   const regexes = new Map();
   const regex = (pattern) => {
     if (!regexes.has(pattern)) regexes.set(pattern, new RegExp(pattern, "u"));
     return regexes.get(pattern);
   };
-  const check = (s) => {
+  const check = (s, contextDialect = dialect) => {
     if (typeof s === "boolean") return;
+    const selected = schemaDialects?.get(s);
+    contextDialect =
+      s.$schema ??
+      (typeof selected === "string" ? selected : selected?.dialect) ??
+      contextDialect;
+    openAPIAnnotations(s, contextDialect);
     for (const k of counts)
       if (
         has(s, k) &&
@@ -163,14 +284,7 @@ export function compileExactModern(
       )
         invalid();
     for (const [uri, required] of Object.entries(s.$vocabulary ?? {}))
-      if (
-        required &&
-        !vocabulary.has(uri) &&
-        !(
-          assertFormats &&
-          uri === "https://json-schema.org/draft/2020-12/vocab/format-assertion"
-        )
-      )
+      if (required && !vocabulary.has(uri))
         throw new Error("MODERN_SCHEMA_DIALECT_UNSUPPORTED");
     if (
       assertFormats &&
@@ -181,17 +295,26 @@ export function compileExactModern(
     if (has(s, "pattern")) regex(s.pattern);
     for (const pattern of Object.keys(s.patternProperties ?? {}))
       regex(pattern);
-    for (const k of singles) if (has(s, k)) check(s[k]);
-    for (const k of arrays) for (const child of s[k] ?? []) check(child);
+    for (const k of singles) if (has(s, k)) check(s[k], contextDialect);
+    for (const k of arrays)
+      for (const child of s[k] ?? []) check(child, contextDialect);
     for (const k of maps)
-      for (const child of Object.values(s[k] ?? {})) check(child);
+      for (const child of Object.values(s[k] ?? {}))
+        check(child, contextDialect);
   };
-  for (const original of [schema, ...Object.values(documents)]) {
+  for (const original of [schema, ...Object.values(documents), ...registry]) {
     bounded(original);
-    if (!ajv.validateSchema(shadow(original))) invalid();
+    // Use the known 2020-12 meta-schema directly, not original.$schema as a
+    // loader address. OAS base dialects add annotation vocabularies; they do
+    // not change the JSON Schema validation keyword syntax.
+    if (!metadata(shadow(original))) invalid();
     check(original);
   }
-  const normalized = specializeModernResources(schema, documents);
+  const normalized = specializeModernResources(schema, documents, {
+    schemaRegistry,
+    rootURI,
+    dialect,
+  });
   const validFormat = (name, value) => {
     if (["int32", "int64"].includes(name)) {
       if (!numeric(value)) return true;
@@ -260,8 +383,16 @@ export function compileExactModern(
           )
             fail("type");
         }
-        if (has(s, "const") && !equal(data, s.const)) fail("const");
-        if (s.enum && !s.enum.some((v) => equal(data, v))) fail("enum");
+        if (
+          directionPolicy === "reject-forbidden" &&
+          ((mode === "write" && s.readOnly === true) ||
+            (mode === "read" && s.writeOnly === true))
+        )
+          fail("direction");
+        if (has(s, "const") && (binary(data) || !equal(data, s.const)))
+          fail("const");
+        if (s.enum && (binary(data) || !s.enum.some((v) => equal(data, v))))
+          fail("enum");
         if (numeric(data) && !numericRule(s, data)) fail("numeric");
         if (assertFormats && s.format && !validFormat(s.format, data))
           fail("format");

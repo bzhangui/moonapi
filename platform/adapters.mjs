@@ -49,15 +49,19 @@ export function transportAdapter(adapter) {
       const headers = Object.create(null);
       let size = 0;
       for (const [key, value] of Object.entries(result.headers)) {
+        const values = Array.isArray(value) ? value : [value];
         if (
           !/^[!#$%&'*+.^_`|~0-9a-z-]+$/i.test(key) ||
-          typeof value !== "string" ||
-          /[\r\n]/.test(key + value)
+          values.length > 128 ||
+          values.some((v) => typeof v !== "string" || /[\r\n]/.test(v))
         )
           throw new Error("STANDARD_TRANSPORT_HEADERS");
-        size += key.length + value.length;
+        size += key.length + values.reduce((n, v) => n + v.length, 0);
         if (size > 65536) throw new Error("STANDARD_TRANSPORT_HEADERS");
-        headers[key.toLowerCase()] = value;
+        headers[key.toLowerCase()] =
+          Array.isArray(value) && key.toLowerCase() === "set-cookie"
+            ? [...value]
+            : values.join(", ");
       }
       return { status: result.status, headers, raw: result.raw };
     },

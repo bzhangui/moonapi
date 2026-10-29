@@ -1,7 +1,33 @@
 // Resolve granted schema resources offline, then specialize dynamic references
 // into static references per outermost dynamic-anchor binding. This avoids a
 // dependency's runtime anchor-registration bug without flattening constraints.
-import { stringifyExact } from "./standard-value.mjs";
+import { stringifyExact, equal } from "./standard-value.mjs";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const builtins = Object.fromEntries(
+  [
+    "schema",
+    "meta/applicator",
+    "meta/content",
+    "meta/core",
+    "meta/format-annotation",
+    "meta/meta-data",
+    "meta/unevaluated",
+    "meta/validation",
+  ].map((name) => {
+    const s = require("ajv/dist/refs/json-schema-2020-12/" + name + ".json");
+    return [s.$id, s];
+  }),
+);
+export const MODERN_DIALECTS = Object.freeze([
+  "https://json-schema.org/draft/2020-12/schema",
+  "https://spec.openapis.org/oas/3.1/dialect/base",
+  "https://spec.openapis.org/oas/3.1/dialect/2024-10-25",
+  "https://spec.openapis.org/oas/3.1/dialect/2024-11-10",
+  "https://spec.openapis.org/oas/3.2/dialect/base",
+  "https://spec.openapis.org/oas/3.2/dialect/2025-09-17",
+  "https://spec.openapis.org/oas/3.2/dialect/2026-02-26",
+]);
 const singles = [
   "not",
   "if",
@@ -31,9 +57,33 @@ const key = (uri) => {
 const fail = () => {
   throw new Error("MODERN_SCHEMA_INVALID_OR_UNGRANTED");
 };
-export function specializeModernResources(schema, documents) {
+export function specializeModernResources(
+  schema,
+  documents = {},
+  {
+    schemaRegistry = {},
+    rootURI = "https://moonapi.invalid/original-schema.json",
+    dialect = MODERN_DIALECTS[0],
+  } = {},
+) {
+  const admitted = (value) =>
+    typeof value === "string" &&
+    MODERN_DIALECTS.includes(value.replace(/#$/, ""));
+  if (!admitted(dialect)) throw new Error("MODERN_SCHEMA_DIALECT_UNSUPPORTED");
+  const locations =
+    schemaRegistry instanceof Map
+      ? [...schemaRegistry]
+      : Object.entries(schemaRegistry ?? {});
+  if (
+    !schemaRegistry ||
+    typeof schemaRegistry !== "object" ||
+    Array.isArray(schemaRegistry) ||
+    locations.length > 4096
+  )
+    throw new Error("MODERN_SCHEMA_REFERENCES");
   const registry = new Map(),
-    anchors = new Map();
+    anchors = new Map(),
+    nodes = new WeakMap();
   let count = 0;
   const register = (uri, info) => {
     const k = key(uri),
@@ -49,6 +99,15 @@ export function specializeModernResources(schema, documents) {
     scopes = [{ uri: docURI, path: "" }],
     depth = 0,
   ) => {
+    const physical = key(docURI + "#" + encodeURIComponent(path)),
+      existing = registry.get(physical);
+    // A registry may include a containing Schema root and its subschemas. Do
+    // not re-register these locations as conflicting resources. Distinct
+    // contents at one physical URI remain an ambiguity and fail closed.
+    if (existing) {
+      if (!equal(existing.schema, s)) fail();
+      return existing;
+    }
     if (
       ++count > 50000 ||
       depth > 64 ||
@@ -56,11 +115,7 @@ export function specializeModernResources(schema, documents) {
         (!s || typeof s !== "object" || Array.isArray(s)))
     )
       fail();
-    if (
-      s &&
-      s.$schema !== undefined &&
-      s.$schema !== "https://json-schema.org/draft/2020-12/schema"
-    )
+    if (s && s.$schema !== undefined && !admitted(s.$schema))
       throw new Error("MODERN_SCHEMA_DIALECT_UNSUPPORTED");
     if (s && s.$id !== undefined) {
       const u = new URL(s.$id, base);
@@ -70,8 +125,12 @@ export function specializeModernResources(schema, documents) {
         scopes = [...scopes, { uri: base, path }];
     }
     const info = { index: count, schema: s, base, children: new Map() };
+    if (s && typeof s === "object" && !nodes.has(s)) nodes.set(s, info);
     for (const scope of scopes)
-      register(scope.uri + "#" + path.slice(scope.path.length), info);
+      register(
+        scope.uri + "#" + encodeURIComponent(path.slice(scope.path.length)),
+        info,
+      );
     if (typeof s === "boolean") return info;
     for (const name of [s.$anchor, s.$dynamicAnchor])
       if (typeof name === "string") register(base + "#" + name, info);
@@ -124,12 +183,33 @@ export function specializeModernResources(schema, documents) {
       }
     return info;
   };
-  const rootURI = "https://moonapi.invalid/original-schema.json";
-  const root = scan(schema, rootURI);
+  const scanRoot = (s, location) => {
+    const u = new URL(location);
+    if (u.username || u.password) fail();
+    const prior = s && typeof s === "object" ? nodes.get(s) : undefined;
+    if (prior) {
+      register(u.href, prior);
+      return prior;
+    }
+    const fragment = decodeURIComponent(u.hash.slice(1));
+    if (fragment && !fragment.startsWith("/")) fail();
+    u.hash = "";
+    return scan(s, u.href, fragment, u.href, [{ uri: u.href, path: "" }]);
+  };
+  const root = scanRoot(schema, rootURI);
+  const isAnchor = (uri) => {
+    const fragment = decodeURIComponent(new URL(uri).hash.slice(1));
+    return fragment && !fragment.startsWith("/");
+  };
+  for (const [uri, entry] of locations.filter(([uri]) => !isAnchor(uri)))
+    scanRoot(entry, uri);
+  for (const [uri, entry] of locations.filter(([uri]) => isAnchor(uri)))
+    scanRoot(entry, uri);
+  for (const [uri, builtin] of Object.entries(builtins)) scanRoot(builtin, uri);
   for (const [uri, document] of Object.entries(documents)) {
     const u = new URL(uri);
-    if (u.hash || u.username || u.password || u.href === rootURI) fail();
-    scan(document, u.href);
+    if (u.hash || u.username || u.password) fail();
+    scanRoot(document, u.href);
   }
   const resolve = (reference, info) => {
     if (typeof reference !== "string") fail();

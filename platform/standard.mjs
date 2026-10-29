@@ -1,5 +1,6 @@
 import { Worker } from "node:worker_threads";
 import { performance } from "node:perf_hooks";
+import { randomUUID } from "node:crypto";
 import { transportAdapter, within } from "./adapters.mjs";
 import { Engine, loadCore, VERSION } from "./runner.mjs";
 import { encodeRequest, resolveServer } from "./standard-codec.mjs";
@@ -9,14 +10,19 @@ import {
   cloneExact,
   setOwn,
 } from "./standard-value.mjs";
-import { standardHTTP } from "./standard-http.mjs";
+import { standardHTTP, clientTLS } from "./standard-http.mjs";
+import { isReadOnlyMethod } from "./standard-method.mjs";
 import { callbackReceiver } from "./standard-callback.mjs";
 import {
   bindExpression,
   requestContext,
   expression,
 } from "./standard-expression.mjs";
-import { STANDARD_CAPABILITIES } from "./standard-capabilities.mjs";
+import {
+  STANDARD_CAPABILITIES,
+  capabilitiesFor,
+} from "./standard-capabilities.mjs";
+import { encodeTransfer, decodeTransfer } from "./standard-transfer.mjs";
 import { ExecutionLedger, journalSettings } from "./execution-ledger.mjs";
 import { documentDigest } from "./ci-tools.mjs";
 import {
@@ -51,7 +57,13 @@ class StandardWorker {
       },
     );
     this.#worker.on("message", (message) => {
-      const result = parseExact(message);
+      let result;
+      try {
+        result = decodeTransfer(message);
+      } catch {
+        this.close("STANDARD_WORKER_ENCODING");
+        return;
+      }
       const pending = this.#pending.get(result.id);
       if (!pending) return;
       this.#pending.delete(result.id);
@@ -66,7 +78,7 @@ class StandardWorker {
     if (this.#closed)
       return Promise.reject(new Error("STANDARD_WORKER_CLOSED"));
     try {
-      if (Buffer.byteLength(stringifyExact(args)) > 4194304) throw new Error();
+      encodeTransfer(args);
     } catch {
       return Promise.reject(new Error("STANDARD_COMMAND_BUDGET"));
     }
@@ -77,7 +89,7 @@ class StandardWorker {
       }, this.timeout);
       this.#pending.set(id, { resolve, reject, timer });
       try {
-        this.#worker.postMessage(stringifyExact({ id, action, args }));
+        this.#worker.postMessage(encodeTransfer({ id, action, args }));
       } catch {
         this.#pending.delete(id);
         clearTimeout(timer);
@@ -110,6 +122,8 @@ export class StandardEngine {
   #transport;
   #intentStore;
   #documentBinding;
+  #callbackTLS;
+  #receivers = new Set();
   get description() {
     return cloneExact(this.#description);
   }
@@ -133,6 +147,7 @@ export class StandardEngine {
       "credentialProvider",
       "transport",
       "intentStore",
+      "callbackTLS",
     ];
     if (
       !options ||
@@ -183,6 +198,8 @@ export class StandardEngine {
     await loadCore();
     const engine = new StandardEngine();
     engine.#transport = transportAdapter(settings.transport);
+    if (settings.callbackTLS !== undefined)
+      engine.#callbackTLS = clientTLS(settings.callbackTLS);
     if (
       settings.intentStore !== undefined &&
       (settings.intentStore?.version !== 1 ||
@@ -251,6 +268,8 @@ export class StandardEngine {
   async close() {
     this.#closed = true;
     this.#httpAbort?.abort();
+    for (const r of this.#receivers) await r.close();
+    this.#receivers.clear();
     await this.#worker?.close();
   }
   async plan() {
@@ -312,7 +331,7 @@ export class StandardEngine {
         blockers,
         truncated: scheduled.truncated,
         available: scheduled.available,
-        ...STANDARD_CAPABILITIES,
+        ...capabilitiesFor(this.#description.openapi_version),
       };
       return cloneExact(this.#plan);
     } finally {
@@ -386,6 +405,53 @@ export class StandardEngine {
       credentials: this.#credentials,
     });
   }
+  async webhooks() {
+    if (this.#closed) throw new Error("STANDARD_ENGINE_CLOSED");
+    return this.#worker.call("webhooks", {});
+  }
+  async validateWebhook(name, incoming) {
+    if (this.#closed) throw new Error("STANDARD_ENGINE_CLOSED");
+    return this.#worker.call("webhook", {
+      name,
+      incoming,
+      seed: this.options.seed,
+      credentials: this.#credentials,
+    });
+  }
+  async createWebhookReceiver(
+    name,
+    { timeout = this.options.callbackTimeout, path = {} } = {},
+  ) {
+    if (this.#closed) throw new Error("STANDARD_ENGINE_CLOSED");
+    if (!this.options.allowCallbacks)
+      throw new Error("STANDARD_WEBHOOK_NOT_AUTHORIZED");
+    if (
+      !Number.isInteger(timeout) ||
+      timeout < 10 ||
+      timeout > 30000 ||
+      !path ||
+      typeof path !== "object" ||
+      Array.isArray(path) ||
+      Object.entries(path).some(
+        ([k, v]) => k.length > 256 || typeof v !== "string" || v.length > 2048,
+      )
+    )
+      throw new Error("STANDARD_WEBHOOK_OPTIONS");
+    if (!(await this.webhooks()).some((r) => r.name === name))
+      throw new Error("STANDARD_WEBHOOK_UNKNOWN");
+    const r = await callbackReceiver(
+      (incoming) => this.validateWebhook(name, incoming),
+      timeout,
+      { tls: this.#callbackTLS, path: cloneExact(path) },
+    );
+    const close = r.close;
+    r.close = async () => {
+      this.#receivers.delete(r);
+      await close();
+    };
+    this.#receivers.add(r);
+    return r;
+  }
   async validateResponse(id, status, body, headers, empty = false) {
     if (this.#closed) throw new Error("STANDARD_ENGINE_CLOSED");
     if (
@@ -397,7 +463,14 @@ export class StandardEngine {
     )
       throw new Error("STANDARD_RESPONSE_INPUT");
     const normalized = Object.fromEntries(
-      Object.entries(headers).map(([k, v]) => [k.toLowerCase(), String(v)]),
+      Object.entries(headers).map(([k, v]) => [
+        k.toLowerCase(),
+        Array.isArray(v) && k.toLowerCase() === "set-cookie"
+          ? [...v]
+          : Array.isArray(v)
+            ? v.join(", ")
+            : String(v),
+      ]),
     );
     return this.#worker.call("response", {
       id,
@@ -420,7 +493,14 @@ export class StandardEngine {
           : undefined;
         return (
           credential &&
-          scopes.every((scope) => credential.scopes?.includes(scope))
+          scopes.every((scope) =>
+            (["oauth2", "openIdConnect"].includes(
+              operation.security_schemes[name]?.type,
+            )
+              ? credential.scopes
+              : credential.roles
+            )?.includes(scope),
+          )
         );
       }),
     );
@@ -439,6 +519,25 @@ export class StandardEngine {
     for (const name of Object.keys(alternative)) {
       const scheme = operation.security_schemes[name],
         credential = credentials[name];
+      if (scheme.type === "mutualTLS") {
+        if (target.protocol !== "https:")
+          throw new Error("STANDARD_MUTUAL_TLS_REQUIRED");
+        const config = clientTLS(
+          Object.fromEntries(
+            ["cert", "key", "ca", "passphrase"]
+              .filter((k) => credential[k] !== undefined)
+              .map((k) => [k, credential[k]]),
+          ),
+        );
+        if (
+          request.tls &&
+          (String(request.tls.cert) !== String(config.cert) ||
+            String(request.tls.key) !== String(config.key))
+        )
+          throw new Error("STANDARD_AUTH_DESTINATION_COLLISION");
+        request.tls = config;
+        continue;
+      }
       if (
         scheme.type === "http" &&
         scheme.scheme?.toLowerCase() === "basic" &&
@@ -663,10 +762,7 @@ export class StandardEngine {
         const operation = this.#description.operations.find(
           (op) => op.id === test.operation_id,
         );
-        if (
-          !["GET", "HEAD", "OPTIONS"].includes(operation.method) &&
-          !this.options.allowWrite
-        ) {
+        if (!isReadOnlyMethod(operation.method) && !this.options.allowWrite) {
           blockers.push({ case_id: test.id, code: "write_not_authorized" });
           continue;
         }
@@ -692,6 +788,12 @@ export class StandardEngine {
           phase = state;
         };
         const receivers = [];
+        const streamID = randomUUID();
+        let streaming = false,
+          streamResult,
+          streamProblem,
+          receivedStatus = 0,
+          streamItems = 0;
         emit("prepared");
         try {
           if (this.#credentialProvider) {
@@ -751,6 +853,7 @@ export class StandardEngine {
                   this.options.callbackTimeout,
                   Math.max(10, deadline - performance.now()),
                 ),
+                { tls: this.#callbackTLS },
               );
               receivers.push(receiver);
               if (!bindExpression(test, callback.expression, receiver.url))
@@ -800,10 +903,7 @@ export class StandardEngine {
           });
           if (wireContract.valid !== !test.negative)
             throw new Error("STANDARD_WIRE_CONTRACT_MISMATCH");
-          if (
-            this.#intentStore &&
-            !["GET", "HEAD", "OPTIONS"].includes(operation.method)
-          ) {
+          if (this.#intentStore && !isReadOnlyMethod(operation.method)) {
             const receipt = await wait(() =>
               this.#intentStore.prepare(
                 {
@@ -854,6 +954,42 @@ export class StandardEngine {
             method: operation.method,
             headers: request.headers,
             body: request.body,
+            tls: request.tls,
+            onHeaders: async (response) => {
+              if (!operation.modern) return;
+              receivedStatus = response.status;
+              const opened = await this.#worker.call("stream-open", {
+                id: operation.id,
+                stream_id: streamID,
+                ...response,
+              });
+              streaming = opened.opened === true;
+            },
+            onChunk: async (chunk) => {
+              if (!streaming) return;
+              try {
+                const ack = await this.#worker.call("stream-chunk", {
+                  stream_id: streamID,
+                  chunk,
+                });
+                streamItems = ack.item_count;
+              } catch (error) {
+                streamProblem = error.message;
+                throw error;
+              }
+            },
+            onEnd: async () => {
+              if (!streaming) return;
+              try {
+                streamResult = await this.#worker.call("stream-end", {
+                  stream_id: streamID,
+                });
+                streamItems = streamResult.item_count;
+              } catch (error) {
+                streamProblem = error.message;
+                throw error;
+              }
+            },
             onSent: () => emit("sent"),
             signal: AbortSignal.any([
               this.#httpAbort.signal,
@@ -861,6 +997,7 @@ export class StandardEngine {
               AbortSignal.timeout(this.options.timeout),
             ]),
           });
+          receivedStatus = response.status;
           emit("responded", response.status);
           const decoder = this.#codecs.get(
             response.headers["content-type"]
@@ -871,23 +1008,34 @@ export class StandardEngine {
           const decodedBody = decoder
             ? await wait(() => decoder.decode(response.raw, budgetSignal))
             : undefined;
-          const decoded = decoder
+          const decoded = streamResult
             ? {
-                body: decodedBody,
+                body: streamResult.value,
                 contract: await this.validateResponse(
                   operation.id,
                   response.status,
-                  decodedBody,
+                  streamResult.value,
                   response.headers,
                   response.raw.length === 0,
                 ),
               }
-            : await this.#worker.call("decode", {
-                id: operation.id,
-                status: response.status,
-                headers: response.headers,
-                raw: response.raw.toString("base64"),
-              });
+            : decoder
+              ? {
+                  body: decodedBody,
+                  contract: await this.validateResponse(
+                    operation.id,
+                    response.status,
+                    decodedBody,
+                    response.headers,
+                    response.raw.length === 0,
+                  ),
+                }
+              : await this.#worker.call("decode", {
+                  id: operation.id,
+                  status: response.status,
+                  headers: response.headers,
+                  raw: response.raw.toString("base64"),
+                });
           let body = decoded.body,
             contract = decoded.contract;
           const oracle = policy("standard-oracle", {
@@ -921,10 +1069,15 @@ export class StandardEngine {
               callbacksValid = false;
           if (!callbacksValid) {
             oracle.passed = false;
-            oracle.code = receivers.some((r) => r.records.some((x) => !x.valid))
-              ? "callback_contract"
-              : "callback_timeout";
-            oracle.inconclusive = oracle.code === "callback_timeout";
+            const limited = receivers.some((r) =>
+              r.records.some((x) => x.inconclusive),
+            );
+            oracle.code = limited
+              ? "callback_budget"
+              : receivers.some((r) => r.records.some((x) => !x.valid))
+                ? "callback_contract"
+                : "callback_timeout";
+            oracle.inconclusive = limited || oracle.code === "callback_timeout";
             oracle.fingerprint = String(response.status) + ":" + oracle.code;
           }
           emit(oracle.passed ? "completed" : "failed", response.status);
@@ -935,7 +1088,17 @@ export class StandardEngine {
             status: response.status,
             ...oracle,
             contract_code: contract.code,
+            ...(contract.unconstrained
+              ? { response_contract_unspecified: true }
+              : {}),
             category: policy("workflow-category", { code: oracle.code }),
+            ...(streaming
+              ? {
+                  streamed: true,
+                  validated_items: streamItems,
+                  stream_eof_verified: streamResult?.complete === true,
+                }
+              : {}),
             ...(receivers.length
               ? {
                   callback_count: receivers.reduce(
@@ -950,7 +1113,7 @@ export class StandardEngine {
             url: target.href,
             method: operation.method,
             status: response.status,
-            request: requestContext(test, request.headers),
+            request: requestContext(test, request.headers, target.href),
             response: { body, header: response.headers },
           });
           if (
@@ -964,7 +1127,7 @@ export class StandardEngine {
                 url: target.href,
                 method: operation.method,
                 status: response.status,
-                request: requestContext(test, request.headers),
+                request: requestContext(test, request.headers, target.href),
                 response: { body, header: response.headers },
               });
               for (const link of links) {
@@ -1016,7 +1179,62 @@ export class StandardEngine {
             blockers.push({ code: "total_deadline" });
             break;
           }
-        } catch {
+        } catch (error) {
+          if (
+            phase === "responded" &&
+            /(?:STANDARD|MODERN)_[A-Z0-9_]*BUDGET/.test(error.message)
+          ) {
+            emit("unknown", receivedStatus);
+            records.push({
+              case_id: test.id,
+              operation_id: operation.id,
+              negative: test.negative,
+              status: receivedStatus,
+              passed: false,
+              code: "validation_budget",
+              inconclusive: true,
+              category: "budget",
+              fingerprint: "",
+            });
+            if (!isReadOnlyMethod(operation.method)) {
+              blockers.push({ code: "unknown_write_requires_inspection" });
+              break;
+            }
+            continue;
+          }
+          if (
+            streaming &&
+            receivedStatus &&
+            (streamProblem || error.message === "STANDARD_RESPONSE_BUDGET")
+          ) {
+            const limited = /BUDGET|DEADLINE|TIMEOUT|STATE_/.test(
+              streamProblem ?? error.message,
+            );
+            if (!limited && ["dispatching", "sent"].includes(phase))
+              emit("responded", receivedStatus);
+            emit(limited ? "unknown" : "failed", receivedStatus);
+            records.push({
+              case_id: test.id,
+              operation_id: operation.id,
+              negative: test.negative,
+              status: receivedStatus,
+              ...policy("standard-oracle", {
+                status: receivedStatus,
+                negative: test.negative,
+                contract_valid: false,
+              }),
+              ...(limited ? { code: "stream_budget", inconclusive: true } : {}),
+              category: limited ? "budget" : "defect",
+              streamed: true,
+              validated_items: streamItems,
+              stream_eof_verified: false,
+            });
+            if (limited && !isReadOnlyMethod(operation.method)) {
+              blockers.push({ code: "unknown_write_requires_inspection" });
+              break;
+            }
+            continue;
+          }
           if (["dispatching", "sent", "responded"].includes(phase))
             emit("unknown");
           const expired =
@@ -1035,15 +1253,23 @@ export class StandardEngine {
             }),
             ...(expired ? { code: "total_deadline" } : {}),
             category: expired ? "budget" : "transport",
+            ...(streaming
+              ? {
+                  streamed: true,
+                  validated_items: streamItems,
+                  stream_eof_verified: false,
+                }
+              : {}),
           });
-          if (
-            !["GET", "HEAD", "OPTIONS"].includes(operation.method) &&
-            phase === "unknown"
-          ) {
+          if (!isReadOnlyMethod(operation.method) && phase === "unknown") {
             blockers.push({ code: "unknown_write_requires_inspection" });
             break;
           }
         } finally {
+          if (streaming && !streamResult)
+            try {
+              await this.#worker.call("stream-abort", { stream_id: streamID });
+            } catch {}
           for (const receiver of receivers) await receiver.close();
         }
       }
@@ -1071,7 +1297,7 @@ export class StandardEngine {
           truncated: plan.truncated,
         }),
         records,
-        ...STANDARD_CAPABILITIES,
+        ...capabilitiesFor(this.#description.openapi_version),
       };
     } finally {
       this.#busy = false;

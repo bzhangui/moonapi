@@ -10,6 +10,21 @@ test("fixed upstream 2020-12 foundation vectors retain original bytes and run ev
   assert.equal(manifest.commit, "89e83a74014617ffbe79a56d83d14d054cd11417");
   let groups = 0,
     assertions = 0;
+  const schemaRegistry = {};
+  for (const [file, expected] of Object.entries(manifest.remotes)) {
+    const raw = fs.readFileSync(new URL(file, root));
+    assert.equal(
+      createHash("sha1")
+        .update("blob " + raw.length + "\0")
+        .update(raw)
+        .digest("hex"),
+      expected,
+      "upstream remote bytes changed: " + file,
+    );
+    if (!/\/(?:format-assertion|metaschema-)/.test(file))
+      schemaRegistry["http://localhost:1234/" + file.slice("remotes/".length)] =
+        parseExact(raw.toString("utf8"));
+  }
   for (const [file, expected] of Object.entries(manifest.files)) {
     const raw = fs.readFileSync(new URL(file, root)),
       actual = createHash("sha1")
@@ -18,7 +33,12 @@ test("fixed upstream 2020-12 foundation vectors retain original bytes and run ev
         .digest("hex");
     assert.equal(actual, expected, "upstream bytes changed: " + file);
     for (const group of parseExact(raw.toString("utf8"))) {
-      const validate = compileExactModern(group.schema);
+      let validate;
+      try {
+        validate = compileExactModern(group.schema, {}, { schemaRegistry });
+      } catch (cause) {
+        throw new Error(file + ": " + group.description, { cause });
+      }
       groups++;
       for (const c of group.tests) {
         assert.equal(
@@ -30,11 +50,11 @@ test("fixed upstream 2020-12 foundation vectors retain original bytes and run ev
       }
     }
   }
-  assert.equal(groups, 184);
-  assert.equal(assertions, 660);
+  assert.equal(groups, 382);
+  assert.equal(assertions, 1297);
   console.log(
     JSON.stringify({
-      independent_modern_foundation_files: 19,
+      independent_modern_foundation_files: 45,
       groups,
       assertions,
       skipped: 0,

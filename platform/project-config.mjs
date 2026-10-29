@@ -3,13 +3,13 @@ import { StandardWorkflow } from "./workflow.mjs";
 import { ownedResourceWorkflow } from "./workflow-templates.mjs";
 import { parseExact } from "./standard-value.mjs";
 import { Engine } from "./runner.mjs";
+import { isReadOnlyMethod } from "./standard-method.mjs";
 async function readonlyDefaults(engine) {
   const profiles = await engine.profiles();
   return profiles
     .filter(
       (o) =>
-        ["GET", "HEAD", "OPTIONS"].includes(o.method) &&
-        !o.parameters.some((p) => p.required),
+        isReadOnlyMethod(o.method) && !o.parameters.some((p) => p.required),
     )
     .map((o) => o.id);
 }

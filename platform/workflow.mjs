@@ -12,6 +12,7 @@ import {
   overlappingInputs,
 } from "./input-protection.mjs";
 import { ResponseCorpus } from "./response-corpus.mjs";
+import { isReadOnlyMethod } from "./standard-method.mjs";
 import { intentEnvironmentBinding } from "./execution-intent.mjs";
 import { StandardEngine } from "./standard.mjs";
 import { Engine, VERSION } from "./runner.mjs";
@@ -312,7 +313,7 @@ export function workflowModel(input, description) {
     }
     if (step.poll) {
       if (
-        !["GET", "HEAD", "OPTIONS"].includes(op.method) ||
+        !isReadOnlyMethod(op.method) ||
         Object.keys(step.poll).some(
           (k) => !["attempts", "interval", "pendingStatuses"].includes(k),
         ) ||
@@ -585,10 +586,7 @@ export class StandardWorkflow {
       const op = description.operations.find(
         (o) => o.id === step.request.operation_id,
       );
-      if (
-        !["GET", "HEAD", "OPTIONS"].includes(op.method) &&
-        !this.#engine.options.allowWrite
-      )
+      if (!isReadOnlyMethod(op.method) && !this.#engine.options.allowWrite)
         throw new Error("WORKFLOW_WRITE_NOT_AUTHORIZED");
       if (op.callbacks.length && !this.#engine.options.allowCallbacks)
         throw new Error("WORKFLOW_CALLBACK_NOT_AUTHORIZED");
@@ -648,10 +646,7 @@ export class StandardWorkflow {
       const operation = description.operations.find(
         (o) => o.id === request.operation_id,
       );
-      if (
-        unknownWriteHalt &&
-        !["GET", "HEAD", "OPTIONS"].includes(operation?.method)
-      )
+      if (unknownWriteHalt && !isReadOnlyMethod(operation?.method))
         throw new Error("WORKFLOW_UNKNOWN_WRITE");
       await verifyLease();
       const current = ++attempt;
@@ -661,10 +656,7 @@ export class StandardWorkflow {
         role: step.role,
         authorizationProbe: step.authorizationProbe,
         onEvent: (event) => {
-          if (
-            event.state === "unknown" &&
-            !["GET", "HEAD", "OPTIONS"].includes(event.method)
-          ) {
+          if (event.state === "unknown" && !isReadOnlyMethod(event.method)) {
             unknownWriteHalt = true;
             feedbackCorpus?.markUnsafe();
           }

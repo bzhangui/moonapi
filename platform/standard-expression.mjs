@@ -140,10 +140,17 @@ export function bindExpression(test, expr, value) {
   else test.parameters.push({ in: location, name, value });
   return true;
 }
-export function requestContext(test, headers = {}) {
+export function requestContext(test, headers = {}, url) {
   const result = { body: test.body, header: {}, query: {}, path: {} };
-  for (const p of test.parameters)
+  if (url)
+    for (const [k, v] of new URL(url).searchParams) setOwn(result.query, k, v);
+  for (const p of test.parameters) {
+    if (p.in === "querystring") {
+      result.querystring = cloneExact(p.value);
+      continue;
+    }
     if (p.in !== "cookie") setOwn(result[p.in], p.name, p.value);
+  }
   // Only declared request header parameters are addressable by expressions.
   for (const k of Object.keys(result.header))
     result.header[k] = headers[k.toLowerCase()] ?? result.header[k];

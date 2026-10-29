@@ -1,7 +1,25 @@
 // OAS parameter serialization is not URLSearchParams(object): separators and
 // percent-encoding must remain distinct. Values are always encoded separately.
-import { stringifyExact, numeric, setOwn } from "./standard-value.mjs";
+import {
+  stringifyExact,
+  numeric,
+  setOwn,
+  parseExact,
+} from "./standard-value.mjs";
 import { encodeMedia, decodeMedia, castWire } from "./standard-media.mjs";
+import {
+  encodeModernMedia,
+  decodeModernMedia,
+  encodeQuerystring,
+  decodeQuerystring,
+  serializeModernCookie,
+  decodeModernCookie,
+  decodeModernHeader,
+  mediaSchema,
+  modernWireCandidates,
+  modernWireCombinations,
+  chooseModernWire,
+} from "./modern-media.mjs";
 const own = (v, k) => Object.hasOwn(v, k);
 const scalar = (v) => (v === null ? "" : String(v));
 const token = (v) =>
@@ -15,7 +33,21 @@ function parts(value, encode = token) {
     return Object.entries(value).map(([k, v]) => [encode(k), encode(v)]);
   return encode(value);
 }
-export function serializeParameter(p, value) {
+export function serializeParameter(p, value, mediaOptions = {}) {
+  if (p.modern && p.in === "querystring")
+    return [
+      encodeQuerystring(
+        { in: p.in, name: p.name, content: p.contentDefinition ?? p.content },
+        value,
+        mediaOptions,
+      ),
+    ];
+  if (p.modern && p.in === "cookie")
+    return serializeModernCookie(
+      { ...p, content: p.contentDefinition ?? p.content },
+      value,
+      mediaOptions,
+    );
   const style =
     p.style ?? (["path", "header"].includes(p.in) ? "simple" : "form");
   const explode = p.explode ?? style === "form";
@@ -40,8 +72,11 @@ export function serializeParameter(p, value) {
     );
   const reserved = (v) =>
     token(v)
-      .replace(/%(?:3A|2F|3F|40|21|24|27|28|29|2A|2C|3B)/gi, (c) =>
-        decodeURIComponent(c),
+      .replace(
+        p.modern
+          ? /%(?:3A|2F|3F|40|21|24|27|28|29|2A|2B|2C|3B)/gi
+          : /%(?:3A|2F|3F|40|21|24|27|28|29|2A|2C|3B)/gi,
+        (c) => decodeURIComponent(c),
       )
       .replace(/%25([0-9A-F]{2})/gi, "%$1");
   const enc =
@@ -56,7 +91,15 @@ export function serializeParameter(p, value) {
   const name = token(p.name);
   if (p.content) {
     const encoded = (p.in === "header" ? scalar : token)(
-      encodeMedia(p.content, value, { schema: p.schema }).body.toString("utf8"),
+      (p.modern
+        ? encodeModernMedia(
+            p.content,
+            value,
+            p.contentDefinition?.[p.content] ?? { schema: p.schema },
+            mediaOptions,
+          )
+        : encodeMedia(p.content, value, { schema: p.schema })
+      ).body.toString("utf8"),
     );
     if (p.in !== "header")
       return p.in === "path" ? encoded : [`${name}=${encoded}`];
@@ -123,7 +166,7 @@ export function serializeParameter(p, value) {
   }
   throw new Error("STANDARD_PARAMETER_STYLE");
 }
-export function encodeRequest(operation, test) {
+export function encodeRequest(operation, test, mediaOptions = {}) {
   let route = operation.path;
   const query = [],
     cookies = [],
@@ -133,9 +176,9 @@ export function encodeRequest(operation, test) {
       (p) => p.name === value.name && p.in === value.in,
     );
     if (!p) throw new Error("STANDARD_UNKNOWN_PARAMETER");
-    const encoded = serializeParameter(p, value.value);
+    const encoded = serializeParameter(p, value.value, mediaOptions);
     if (p.in === "path") route = route.replaceAll("{" + p.name + "}", encoded);
-    else if (p.in === "query") query.push(...encoded);
+    else if (p.in === "query" || p.in === "querystring") query.push(...encoded);
     else if (p.in === "cookie") cookies.push(...encoded);
     else headers[encoded[0]] = encoded[1];
   }
@@ -152,10 +195,11 @@ export function encodeRequest(operation, test) {
   let body;
   if (own(test, "body")) {
     const media = test.media?.toLowerCase();
-    const encoded = encodeMedia(
+    const encoded = (operation.modern ? encodeModernMedia : encodeMedia)(
       media,
       test.body,
       operation.body_content?.[test.media] || {},
+      mediaOptions,
     );
     body = encoded.body;
     headers["content-type"] = encoded.contentType;
@@ -168,7 +212,10 @@ export function encodeRequest(operation, test) {
   };
 }
 export function resolveServer(servers, selection = 0, variables = {}) {
-  const server = servers[selection];
+  const server =
+    typeof selection === "string"
+      ? servers.find((s) => s.name === selection)
+      : servers[selection];
   if (!server) throw new Error("STANDARD_SERVER_SELECTION");
   for (const key of Object.keys(variables))
     if (!own(server.variables ?? {}, key))
@@ -185,7 +232,16 @@ export function resolveServer(servers, selection = 0, variables = {}) {
     return value;
   });
 }
-export function deserializeParameter(p, wire) {
+export function deserializeParameter(p, wire, mediaOptions = {}) {
+  if (p.modern && p.in === "querystring")
+    return wire.query
+      ? decodeQuerystring(
+          { in: p.in, name: p.name, content: p.contentDefinition ?? p.content },
+          wire.query.replace(/^\?/, ""),
+          mediaOptions,
+        )
+      : undefined;
+  if (p.modern) return deserializeModernParameter(p, wire, mediaOptions);
   const s = p.schema || {},
     style = p.style ?? (["path", "header"].includes(p.in) ? "simple" : "form"),
     explode = p.explode ?? style === "form";
@@ -205,7 +261,14 @@ export function deserializeParameter(p, wire) {
   if (p.content)
     return raw == null
       ? undefined
-      : decodeMedia(p.content, Buffer.from(raw), { schema: s });
+      : p.modern
+        ? decodeModernMedia(
+            p.content,
+            Buffer.from(raw),
+            p.contentDefinition?.[p.content] ?? { schema: s },
+            mediaOptions,
+          )
+        : decodeMedia(p.content, Buffer.from(raw), { schema: s });
   if (
     s.type === "object" &&
     ["query", "cookie"].includes(p.in) &&
@@ -316,4 +379,197 @@ export function deserializeParameter(p, wire) {
     return out;
   }
   return castWire(s, raw);
+}
+function deserializeModernParameter(p, wire, options) {
+  if (p.in === "cookie")
+    return decodeModernCookie(
+      { ...p, content: p.contentDefinition ?? p.content },
+      String(wire.headers?.cookie ?? ""),
+      options,
+    );
+  if (p.in === "header")
+    return decodeModernHeader(p, wire.headers?.[p.name.toLowerCase()], options);
+  const schema = p.schema ?? true,
+    s = mediaSchema(schema, undefined, options),
+    types = Array.isArray(s.type) ? s.type : [s.type],
+    style = p.style ?? (p.in === "path" ? "simple" : "form"),
+    explode = p.explode ?? style === "form";
+  const decode = (value) => {
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      throw new Error("MODERN_PARAMETER_PERCENT_ENCODING");
+    }
+  };
+  const child = (key) =>
+    own(s.properties ?? {}, key)
+      ? s.properties[key]
+      : typeof s.additionalProperties === "object"
+        ? s.additionalProperties
+        : true;
+  const pairs = String(wire.query ?? "")
+    .replace(/^\?/, "")
+    .split("&")
+    .filter(Boolean)
+    .map((part) => {
+      const i = part.indexOf("=");
+      return [
+        decode(i < 0 ? part : part.slice(0, i)),
+        i < 0 ? "" : part.slice(i + 1),
+      ];
+    });
+  if (pairs.length > 256) throw new Error("MODERN_PARAMETER_BUDGET");
+  const named = pairs
+    .filter(([name]) => name === p.name)
+    .map(([, value]) => value);
+  let raw = p.in === "path" ? wire.path?.[p.name] : named[0],
+    arrayTokens,
+    objectPairs,
+    bareNull = false;
+  if (
+    p.in === "query" &&
+    (style === "deepObject" || (style === "form" && explode))
+  ) {
+    objectPairs = [];
+    for (const [name, value] of pairs) {
+      const key =
+        style === "deepObject"
+          ? name.startsWith(p.name + "[") && name.endsWith("]")
+            ? name.slice(p.name.length + 1, -1)
+            : undefined
+          : own(s.properties ?? {}, name) ||
+              (!Object.keys(s.properties ?? {}).length &&
+                s.additionalProperties !== false)
+            ? name
+            : undefined;
+      if (key !== undefined) objectPairs.push([key, value]);
+    }
+  }
+  if (raw === undefined && !objectPairs?.length) return undefined;
+  if (p.content) {
+    if (raw === undefined || (p.in === "query" && named.length !== 1))
+      return undefined;
+    return decodeModernMedia(
+      p.content,
+      Buffer.from(decode(raw)),
+      p.contentDefinition?.[p.content] ?? { schema },
+      options,
+    );
+  }
+  if (p.in === "path") {
+    if (typeof raw !== "string") throw new Error("MODERN_PARAMETER_WIRE");
+    if (style === "label") {
+      if (!raw.startsWith(".")) throw new Error("MODERN_PARAMETER_LABEL");
+      raw = raw.slice(1);
+    } else if (style === "matrix") {
+      if (!raw.startsWith(";")) throw new Error("MODERN_PARAMETER_MATRIX");
+      const entries = raw
+        .slice(1)
+        .split(";")
+        .map((v) => {
+          const i = v.indexOf("=");
+          return [
+            decode(i < 0 ? v : v.slice(0, i)),
+            i < 0 ? undefined : v.slice(i + 1),
+          ];
+        });
+      if (entries.length > 256) throw new Error("MODERN_PARAMETER_BUDGET");
+      if (explode) {
+        arrayTokens = entries
+          .filter(([name]) => name === p.name)
+          .map(([, value]) => value ?? "");
+        objectPairs = entries.map(([key, value]) => [key, value ?? ""]);
+      }
+      const selected = entries.find(([name]) => name === p.name);
+      if (selected) {
+        bareNull = selected[1] === undefined;
+        raw = selected[1] ?? "";
+      } else raw = undefined;
+    }
+  }
+  const separator =
+    style === "label" && explode
+      ? "."
+      : style === "pipeDelimited"
+        ? /\||%7c/gi
+        : style === "spaceDelimited"
+          ? / |%20|\+/gi
+          : ",";
+  arrayTokens ??=
+    p.in === "query" && style === "form" && explode
+      ? named
+      : raw === undefined
+        ? []
+        : raw.split(separator);
+  if (arrayTokens.length > 256) throw new Error("MODERN_PARAMETER_BUDGET");
+  const arrays = modernWireCombinations(
+    arrayTokens.map((v, i) => [
+      i,
+      modernWireCandidates(s.prefixItems?.[i] ?? s.items, decode(v), options),
+    ]),
+    true,
+  );
+  if (raw === "") arrays.unshift([]);
+  if (!objectPairs && raw !== undefined) {
+    const pieces = raw.split(separator);
+    if (explode)
+      objectPairs = pieces.every((v) => v.includes("="))
+        ? pieces.map((v) => {
+            const at = v.indexOf("=");
+            return [decode(v.slice(0, at)), v.slice(at + 1)];
+          })
+        : undefined;
+    else if (pieces.length % 2 === 0) {
+      objectPairs = [];
+      for (let i = 0; i < pieces.length; i += 2)
+        objectPairs.push([decode(pieces[i]), pieces[i + 1]]);
+    }
+  }
+  let objects = [];
+  if (objectPairs) {
+    if (objectPairs.length > 256) throw new Error("MODERN_PARAMETER_BUDGET");
+    if (new Set(objectPairs.map(([key]) => key)).size === objectPairs.length)
+      objects = modernWireCombinations(
+        objectPairs.map(([key, value]) => [
+          key,
+          modernWireCandidates(child(key), decode(value), options),
+        ]),
+      );
+  }
+  if (raw === "") objects.unshift({});
+  const primitives =
+    raw === undefined || (p.in === "query" && named.length > 1)
+      ? []
+      : bareNull
+        ? [null]
+        : modernWireCandidates(schema, decode(raw), options);
+  // Nested RFC6570 objects have no standard representation. Retain the existing
+  // explicit JSON fallback symmetrically; ordinary scalar CSV is not JSON-cast.
+  if (
+    raw !== undefined &&
+    ((s.items &&
+      typeof s.items === "object" &&
+      ["object", "array"].includes(s.items.type)) ||
+      Object.values(s.properties ?? {}).some((v) =>
+        ["object", "array"].includes(v.type),
+      ))
+  ) {
+    try {
+      const value = parseExact(decode(raw));
+      if (value && typeof value === "object" && !numeric(value))
+        primitives.unshift(value);
+    } catch {}
+  }
+  return chooseModernWire(
+    schema,
+    types.includes("array")
+      ? [...arrays, ...primitives, ...objects]
+      : types.includes("object")
+        ? [...objects, ...primitives, ...arrays]
+        : [...primitives, ...arrays, ...objects],
+    {
+      ...options,
+      wireCandidatesTruncated: arrays.truncated || objects.truncated,
+    },
+  );
 }

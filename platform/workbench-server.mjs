@@ -121,23 +121,40 @@ export async function startWorkbench({
         chunks.push(c);
       }
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      if (url.pathname === "/api/inspect") {
+      if (["/api/inspect", "/api/check"].includes(url.pathname)) {
         if (inspecting) return send(409, { error: "ONE_INSPECTION_AT_A_TIME" });
         inspecting = true;
         try {
           const version = parseDefinition(body.source)?.openapi;
-          if (!version?.startsWith("3.0."))
+          if (!/^3\.[012]\.\d+$/.test(version ?? ""))
             return send(200, {
-              dialect: await inspectDialect(body.source, {
-                documents: body.documents ?? {},
-              }),
+              dialect: {
+                version,
+                structurally_valid: false,
+                issues: [
+                  { rule: "unsupported-openapi-version", severity: "error" },
+                ],
+                contents_hidden: true,
+              },
               operations: [],
               execution_supported: false,
+              blocker: "UNSUPPORTED_OPENAPI_VERSION",
+            });
+          const dialect = await inspectDialect(body.source, {
+            documents: body.documents ?? {},
+          });
+          if (!dialect.structurally_valid)
+            return send(200, {
+              dialect,
+              operations: [],
+              execution_supported: false,
+              blocker: "INVALID_DOCUMENT_OR_SCHEMA",
             });
           return send(200, {
             ...(await inspectProject(body.source, {
               documents: body.documents ?? {},
             })),
+            dialect,
             execution_supported: true,
           });
         } finally {
