@@ -19,6 +19,8 @@
 | L    | `tests/modern-linkset.test.mjs`：RFC 8288/9264/8187 Link 文本、语言参数、上下文和注入预算                                                                                            |
 | G    | `tests/modern-generation.test.mjs`：有界生成、组合注解与独立复验                                                                                                                     |
 | E    | `tests/modern-execution.test.mjs`：标准入口与受控 HTTP 端到端执行                                                                                                                    |
+| R    | `tests/modern-routes.test.mjs`：原生跨文档链接、HTTP回调、URI安全继承、组件路由与入站预算                                                                                            |
+| H    | `tests/modern-tls.test.mjs`：合成内存PKI的实际回环HTTPS/mTLS与拒绝对照                                                                                                               |
 | T    | `tests/modern-transfer.test.mjs`：二进制桥接、精确数值、加密见证与预算                                                                                                               |
 | F    | `tests/modern-foundation.test.mjs`：动态引用、流边界与隔离执行期限                                                                                                                   |
 | P    | `tests/modern-entrypoints.test.mjs`、`tests/dialects-diff.test.mjs`：隔离检查器、工作台原生检查/只读入口、未来版本阻断及 CSRF/Host/session 门禁                                      |
@@ -47,10 +49,10 @@
 | Encoding Object               | `multipartParts` / `parseMultipart`、`encodeForm` / `decodeForm`；命名、位置、嵌套、contentType、headers、样式                              | D/M：prefixEncoding、itemEncoding、嵌套 MIME、重复字段、边界伪装、注入；多种 contentType 要显式选择     |
 | Responses Object              | `responseFor`；精确状态、范围、default 的选择；提供时拒绝空有效映射                                                                         | D/E/C：响应状态与空体；未描述的响应与传输错误分开报告                                                   |
 | Response Object               | `responseContract` / `wireResponse`；headers/content/links；3.2 summary 与可省略 description                                                | D/E：optional descriptions；M：响应媒体、Set-Cookie；没有说明文字不是契约故障                           |
-| Callback Object               | 回调表达式索引、`callbackContract` / `inboundContract`；标准入口临时接收端验证请求和响应                                                    | D：callback maps / IDs；C：受控回调；现代入口的入站及 mTLS 新组合需要专门端到端复验                     |
+| Callback Object               | 回调表达式索引、`callbackContract` / `inboundContract`；标准入口临时接收端验证请求和响应                                                    | D/R/H：回调身份、原生健康/故障HTTP入站和mTLS组合；受控回环不代表外部生产回调                            |
 | Example Object                | `sampleContent` / `externalExample`；3.2 `dataValue`、`serializedValue`、显式授予的 externalValue；值/序列化值分别处理                      | D/M/G：不把样例内 `$ref` 当引用；opaque grant；样例不是期望所有响应完全相等的业务 oracle                |
-| Link Object                   | `resolveOperationRef`、worker `links` / `followLink`；精确 runtime expression，支持外部 OAD operationRef 与参数依赖                         | D/C：外部目标和表达式；共享执行代码的原生 3.1/3.2 跨文档链接仍应保留端到端回归                          |
-| Header Object                 | `decodeModernHeader`、现代 header/cookie 适配；Schema/content 分流、大小写不敏感、保留 Set-Cookie 多行；`modern-linkset` 原生 Link 文本映射 | M/L/C；现代媒体和 Header 入口的组合仍需端到端复验，不能由 JSON 媒体回退替代                             |
+| Link Object                   | `resolveOperationRef`、worker `links` / `followLink`；精确 runtime expression，支持外部 OAD operationRef 与参数依赖                         | D/R：原生跨文档operationRef、精确返回值绑定；未绑定组件操作不虚构HTTP路径                               |
+| Header Object                 | `decodeModernHeader`、现代 header/cookie 适配；Schema/content 分流、大小写不敏感、保留 Set-Cookie 多行；`modern-linkset` 原生 Link 文本映射 | M/L/E：Linkset真实HTTP头、多行Set-Cookie和转换预算；不使用JSON回退替代                                  |
 | Tag Object                    | `serversAndTags`；名称、3.2 summary/parent/kind 保留，拒绝父节点缺失和环                                                                    | D：tag parent cycles；组织元数据不影响测试判定                                                          |
 | Reference Object              | 类型化离线资源表、原始物理位置、URI/JSON Pointer；summary/description 仅按目标支持字段覆盖                                                  | D/S：alias、percent、escaped pointer、prototype、无环境读取；Schema `$ref` 的兄弟约束不按此对象规则忽略 |
 | Schema Object                 | `compileExactModern` / `specializeModernResources` / `modernSchemaTools`；2020-12 与 OAS 默认方言                                           | S/V/F/G/E；完整基线与可选词汇表界限见下一节；不是用 Ajv 浮点结果替代精确数值断言                        |

@@ -67,6 +67,8 @@ try {
 
 生成器是有界搜索，不是任意 Schema 的完备可满足性求解器。`STANDARD_GENERATION_UNSAT_OR_BUDGET` 表示这次无法提供合格候选，不证明 Schema 无解，不能返回空计划后宣布全绿。Schema 很复杂时应检查 blocker、提供仍须复验的明确样例或缩小本次选择，而不是删除约束。
 
+可选参数或请求体无法生成合法值时仍保留合法的省略分支；不可选项不会因此被放宽。可选 MIME Header 无法生成或安全序列化时省略，必需 Header 则阻断。`false` Schema 的含义始终保留，不改成 `{}` 以取得通过。
+
 现代协议适配包括：
 
 - 精确 JSON/YAML 数字与原始 Buffer/Uint8Array 字节；跨线程、复制、摘要和确认见证保留精度和类型。普通 `{type:"Buffer",data:[...]}` 业务对象不会自动变成字节。
@@ -77,6 +79,8 @@ try {
 - `application/linkset` 按 RFC9264/8288/8187 在 Link 文本与 `{linkset:[...]}` 数据模型间转换；不是 JSON fallback。保留抽象链接语义和语言/扩展属性，但不保证原始排版或等价分组不变。无法无损表达的扩展值拒绝，Header 模式禁止 CRLF。
 
 CSV、Cookie、XML 等非 JSON 表示可能多解。解码器在有界候选内用原 Schema 选择合法值；穷尽的小集合不合法才报告契约不合格，搜索截断返回 `MODERN_WIRE_COERCION_BUDGET`，属于未确定/资源限制，不应当作已确认接口缺陷。嵌套 deepObject 等规范未定义组合按公开策略处理，不能保证匹配任意框架私有规则。
+
+multipart/form-data 的显式 style/explode/allowReserved 覆盖 contentType，失效的子编码不执行；样式值不做 URI 百分号编码。命名字段的顶层数组仍拆成原字段名的多个 part，位置编码中的嵌套数组保持单个数组值。非 form-data 媒体忽略这些样式，显式命名对象 Encoding 的扩展映射也须往返一致。原始分隔符导致映射多解时明确阻断，不静默回退 JSON。私有帧只接受 JSON 值与真实 Buffer/Uint8Array；日期请先转 ISO 字符串。非有限数、函数、getter、非普通对象、稀疏数组或数组额外属性被拒绝，避免静默改变输入语义。
 
 ## 4. 真实分块流与 EOF
 
