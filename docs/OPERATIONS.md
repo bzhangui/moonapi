@@ -2,6 +2,32 @@
 
 `moonapi-standard.mjs` 使用 JSON/YAML 标准适配；源码安装需要 Node >=22.19.0 和 `npm ci --ignore-scripts`，已发布标准运行包不需 SDK。参见 [标准指南](STANDARD_ENGINE.md) 与 [统一状态/CI](WORKFLOW.md)。下方旧参数、状态/CRUD 和单请求缩减预算仍属于旧入口，不自动成为标准入口能力；旧解析档不支持完整标准，所有未执行/截断/阻塞均不能当通过。
 
+## 0.8 原生 3.1/3.2 候选的操作边界
+
+0.8.0-rc.1 已接入原生 OpenAPI 3.1/3.2 标准执行链，规范核对基线为 3.1.2 / 3.2.1，不将新版 Schema 转写成 3.0。现代能力声明为 `implementation_status=native-standard`、`full_openapi_support=true`；它不是本次计划完成、第三方认证或全量业务保证，新源码也不是已经发布的 Mooncakes 或运行包。见 [0.8指南](UPGRADE_0_8.md)、[覆盖矩阵](OPENAPI_3_1_3_2_MATRIX.md)及[本轮证据](QUALITY_REPORT.md)。
+
+```sh
+npm ci --ignore-scripts
+npm run build
+node examples/modern-demo.mjs
+```
+
+该命令只使用临时合成回环服务，健康/注入故障结果必须不同；不会访问业务接口。标准CLI仍用 `check / plan / run`：check 不发HTTP，plan只生成并校验候选，run必须显式提供 `--base`。工作台的方言检查和只读执行也走原生入口，未来未知版本不能降级后放行。
+
+### 现代标准预算与故障判定
+
+标准入口默认源文档1 MiB、外部grant最多16份/合计4 MiB，操作/计划各256，每操作候选128，请求256 KiB、响应1 MiB；HTTP默认2秒、总运行60秒、worker命令10秒。可配置范围以 `StandardEngine.open` 参数门禁为准，不接受字符串布尔值或未知选项。
+
+现代媒体默认1 MiB、256项、每项64 KiB、嵌套MIME最多8层；Schema、引用图、正则worker、跨线程字节帧、生成深度/尝试和回调各有独立上限。不要将下方旧档的JS安全整数/响应256 KiB限制套到现代标准入口：现代数值使用精确十进制/整数，二进制通过专用字节帧保留。
+
+- 生成无候选、未授予的资源、未安装方言或未知必需词汇表是阻塞；有限搜索不是不可满足性证明。
+- 参数、头和Cookie线格式类型多解时，用原Schema复核有界候选；`MODERN_WIRE_COERCION_BUDGET` 表示本次不能确定，不是已确认接口缺陷。确定的契约不合格与资源限制分开。
+- 顺序流的完成项可提前失败；合法前缀、未收到EOF、截断、停顿、取消和总时限均不得报完整通过。先查预算、媒体和服务生命周期，不增加无限等待或丢弃尾项来换绿。
+- 未知写入继续停止，不自动重试；只读QUERY也不能替代实际业务隔离。额外方法token区分大小写，非标准方法默认需要写许可。
+- TLS必须验证服务端；mTLS缺证书、错误CA/名称/用途/有效期、错误密钥或无TLS不得降级明文。凭据、PEM、回调会话URL和原始报告均应私有。
+
+执行诊断顺序：先 `check` 文档/grant，再 `plan` 检查 blockers/生成预算，然后运行本机合成样例，最后才对授权目标执行。`full_openapi_support` 是维护声明，`passed/complete` 是本次计划结果；空执行、覆盖截断、unconstrained响应与真实生产验收不能相互替代。
+
 # 操作、格式与故障
 
 ## 0.3 接入补充
@@ -10,7 +36,7 @@
 
 0.2 新状态模式使用 `bin/moonapi-behavior.mjs`，语法、独立重置、权限和范围见 [BEHAVIOR_ENGINE](BEHAVIOR_ENGINE.md)，反例见 [REVIEW_CASES](REVIEW_CASES.md)。旧 `--scenario` 仍可串联，但不在污染状态上自动缩减失败步骤；场景生成现在遵循配置 seed。下文格式 1 单请求报告与新格式 2 状态报告分开，不混计缩减证据。
 
-## 预算
+## 旧便携档预算（不是现代标准入口）
 
 CLI 描述 ≤512 KiB、场景 ≤64 KiB；核心 JSON ≤4 MiB/48 层，展开 schema ≤4096 节点/16 层。路径128、操作256、参数32、属性64、枚举32。生成树≤10000节点，字符串/数组≤4096；生成数值范围±1000000。响应整数为 JS 安全整数；精确 uint64 业务数据应用字符串 schema。
 

@@ -34,6 +34,7 @@ run(process.execPath, ["examples/behavior-demo.mjs"]);
 run(process.execPath, ["examples/crud-demo.mjs"]);
 run(process.execPath, ["examples/standard-demo.mjs"]);
 run(process.execPath, ["examples/standard-advanced-demo.mjs"]);
+run(process.execPath, ["examples/modern-demo.mjs"]);
 run(process.execPath, ["examples/workflow-demo.mjs"]);
 run(process.execPath, ["examples/safe-workflow-demo.mjs"]);
 run(process.execPath, ["examples/recovery-demo.mjs"]);

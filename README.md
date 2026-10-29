@@ -1,14 +1,31 @@
 # MoonAPI
 
-以 MoonBit 为主要计算核心的 OpenAPI 驱动接口测试项目：从接口描述生成有效、边界和无效测试，验证请求/响应契约，并以状态依赖与失败序列缩减增强跨步骤业务回归。CRUD 只是接入档之一。**标准入口面向完整 OpenAPI 3.0（JSON/YAML）对象模型和规范语义，按 3.0.4 澄清实现；下方旧便携入口仍是有界档，不冒称具有标准入口的能力。**
+以 MoonBit 为主要计算核心的 OpenAPI 驱动接口测试项目：从接口描述生成有效、边界和无效测试，验证请求/响应契约，并以状态依赖与失败序列缩减增强跨步骤业务回归。CRUD 只是接入档之一。标准入口保留 OpenAPI 3.0（按 3.0.4 澄清实现），本轮接入 **OpenAPI 3.1.2 / 3.2.1 原生执行**，不把新版文档降级为 3.0。旧便携入口仍是有界档，各入口能力和证据分开维护。
 
 [源码](https://github.com/bzhangui/moonapi) · [CI](https://github.com/bzhangui/moonapi/actions) · [验收与测试](docs/QUALITY_REPORT.md) · [使用与限制](docs/OPERATIONS.md)
 
 ## 已实现与用途
 
-### 当前候选源码：0.7.0-rc.1（尚未发布 Mooncakes / 运行包）
+### 当前候选源码：0.8.0-rc.1（暂不发布 Mooncakes / 运行包）
 
-本轮新增**保护归属标记的输入缩减**和**有界响应值/Schema反馈**：显式来源锁、角色/环境/文档授权，选值由MoonBit决定；缩减/确认冻结输入，清理未确认或未知写入立即停止。另修补独立2020-12 Schema探针的精确十进制、动态资源和未评估成员语义；19份固定上游文件的660个断言不删减、不跳过。[0.7使用与剩余边界](docs/UPGRADE_0_7.md)给出API、预算、可运行样例与证据范围；完整3.1/3.2执行仍未开放。
+本轮将原生现代方言接入同一标准执行链：多文档身份与动态引用、2020-12 Schema 校验、有效/边界/无效候选与线上反解复核、精确数字和二进制；新增 QUERY/扩展方法、整体 querystring、Cookie/Set-Cookie、顺序流、位置/嵌套 Encoding、XML nodeType、Link Header 文本映射、webhooks 与 mTLS。元数据保留不等于自动登录、抓取外部资源或获得目标访问许可。
+
+```sh
+npm ci --ignore-scripts
+npm run build
+node examples/modern-demo.mjs
+npm run validate
+```
+
+现代示例只启动临时回环服务，分别运行 3.1.2 JSON 和 3.2.1 QUERY/NDJSON 的健康及注入故障对照，不访问真实业务系统。流式结果须收到 EOF 并同时通过逐项与整体约束，不能把有效前缀、取消、超时或超预算当通过。默认只读方法为 GET/HEAD/OPTIONS/QUERY；额外方法原样区分大小写，默认需要写许可。
+
+[0.8 使用与安全指南](docs/UPGRADE_0_8.md)、[原生 3.1/3.2 覆盖矩阵](docs/OPENAPI_3_1_3_2_MATRIX.md)说明实现、预算、歧义策略与复验入口。当前现代能力声明为 `implementation_status=native-standard`、`full_openapi_support=true`，规范核对基线为 3.1.2 / 3.2.1。这是按矩阵维护的实现范围，不是本次运行结果或第三方认证；局部测试、示例、全套维护和跨平台 CI 分开记录，实际结果以[维护记录](docs/QUALITY_REPORT.md)和[发布记录](docs/PUBLICATION.md)为准。没有任意 Schema 完备求解、穷尽业务或生产可靠性保证。
+
+本轮本机完整维护已通过：**397项Node回归零失败/零跳过，45核心×四目标、12组Native/JS策略对照**，全部示例与源码包隐私检查通过。固定现代上游1297条选定断言全部执行。当前提交的三OS CI与本地包结果另按[维护记录](docs/QUALITY_REPORT.md)核实，不借用历史CI。
+
+### 0.7 候选的历史证据（不代表 0.8 验收结果）
+
+0.7 新增**保护归属标记的输入缩减**和**有界响应值/Schema反馈**：显式来源锁、角色/环境/文档授权，选值由MoonBit决定；缩减/确认冻结输入，清理未确认或未知写入立即停止。另修补独立2020-12 Schema探针的精确十进制、动态资源和未评估成员语义；当时19份固定上游文件的660个断言不删减、不跳过。[0.7使用与剩余边界](docs/UPGRADE_0_7.md)记录该版本的API、预算、样例与证据；该历史版本尚未开放完整3.1/3.2执行。
 
 ```sh
 npm ci --ignore-scripts
@@ -18,7 +35,7 @@ node examples/feedback-demo.mjs
 npm run validate
 ```
 
-本轮完整维护结果见[测试记录](docs/QUALITY_REPORT.md)，对应源码推送/CI见[发布记录](docs/PUBLICATION.md)。新候选仅本地验证打包，不上传Mooncakes或运行包；不以旧版CI或模拟结果替代当前提交和真实用户证据。
+0.7 的完整维护结果见[测试记录](docs/QUALITY_REPORT.md)，对应源码推送/CI见[发布记录](docs/PUBLICATION.md)。不以旧版CI或模拟结果替代当前提交和真实用户证据。
 
 功能冻结提交 `0c8c68c` 的[本轮三平台CI](https://github.com/bzhangui/moonapi/actions/runs/40792676212)已全部通过：每平台250项Node回归、44核心×四目标、10组Native/JS对照、全部示例和两类本地包验证；Linux另完成独立PocketBase/SQLite受控接入与清理。660条现代Schema选定上游断言全过，但不是完整现代OAS执行或真实用户认证。
 
@@ -93,9 +110,9 @@ node bin/moonapi-standard.mjs run your-openapi.yaml --base http://127.0.0.1:8080
 
 [标准入口使用说明](docs/STANDARD_ENGINE.md) 给出 API、凭据、跨文件引用、范围与错误语义。报价/搜索健康对照和注入故障均可运行，不是外部用户生产试点。官方 Petstore 定义只读核验见维护记录，绝不自动测试其写接口。
 
-本轮补齐上一版所列的活动功能缺口。标准入口的 `full_openapi_support=true` 是按公开矩阵和测试维护的**能力声明，不是第三方认证，也不是一次采样证明全部业务无误**。`passed/complete` 另由执行数量、错误、授权和预算决定。规范没有定义的嵌套 deepObject、Cookie 歧义、空值等采用公开策略；自定义媒体使用受信任 codec 扩展，不把任意媒体冒当 JSON。Callbacks 不会擅自访问外部接收系统，响应派生/固定地址须由调用方提供可控环境与接收适配，不能自动把其 URL 改为本机地址。见 [标准矩阵](docs/OPENAPI_3_0_MATRIX.md)。
+各版本标准入口的 `full_openapi_support=true` 是按对应公开矩阵和测试维护的**能力声明，不是第三方认证，也不是一次采样证明全部业务无误**；3.0 与原生 3.1/3.2 各自按自己的规范语义执行。`passed/complete` 另由执行数量、错误、授权和预算决定。规范没有定义的嵌套 deepObject、Cookie 歧义、空值等采用公开策略；自定义媒体使用受信任 codec 扩展，不把任意媒体冒当 JSON。Callbacks 不会擅自访问外部接收系统，响应派生/固定地址须由调用方提供可控环境与接收适配，不能自动把其 URL 改为本机地址。见 [3.0 矩阵](docs/OPENAPI_3_0_MATRIX.md)和[3.1/3.2 矩阵](docs/OPENAPI_3_1_3_2_MATRIX.md)。
 
-当前源码版本为 **0.7.0-rc.1**；已发布版本为 **0.4.0**。Mooncakes 提供纯 MoonBit 计算/policy 核心，标准 HTTP 层从对应源码或标准运行包使用。发布与独立消费状态以 [发布记录](docs/PUBLICATION.md) 为准，不用旧版本证明新 API 已分发。旧便携档保留，标准运行包另含锁定安装的 npm 依赖及完整原许可，不包含 Node/后端二进制。
+当前源码候选为 **0.8.0-rc.1**；已发布版本为 **0.4.0**。Mooncakes 提供纯 MoonBit 计算/policy 核心，标准 HTTP 层从对应源码或标准运行包使用。新候选暂不发布 Mooncakes 和运行包。发布与独立消费状态以 [发布记录](docs/PUBLICATION.md) 为准，不用旧版本证明新 API 已分发。旧便携档保留，标准运行包另含锁定安装的 npm 依赖及完整原许可，不包含 Node/后端二进制。
 
 ### 优先使用：免手写模型的资源回归
 
@@ -160,7 +177,7 @@ node bin/moonapi.mjs run your-openapi.json --base http://127.0.0.1:8080 --allow-
 node bin/moonapi.mjs run examples/spec.json --base http://127.0.0.1:8080 --allow-write --scenario examples/scenario.json
 ```
 
-默认 GET/HEAD/OPTIONS，跳过写入明确报告覆盖不完整。`--allow-write` 会实际创建/修改/删除数据，不能在生产资料上尝试。远程目标另需 `--allow-remote`；`--shrink-write` 允许重复写操作，仅适合隔离环境。
+上述旧入口默认 GET/HEAD/OPTIONS；现代标准入口另将 QUERY 作为明确的只读策略。跳过写入明确报告覆盖不完整。`--allow-write` 会实际创建/修改/删除数据，不能在生产资料上尝试。远程目标另需 `--allow-remote`；`--shrink-write` 允许重复写操作，仅适合隔离环境。只读方法名本身不能证明服务没有副作用。
 
 `--seed`、`--limit`、`--timeout`、`--shrink-budget` 调整有界预算。Bearer 通过 `MOONAPI_BEARER_TOKEN` 环境传入，不放命令行/源码。`--save-repro` 将最小输入保存到本地私有报告，可能含业务字段，不公开。
 
@@ -183,6 +200,6 @@ node scripts/package.mjs
 
 统一维护入口执行四目标检查/构建/测试/样例、HTTP 与故障场景、格式及核心覆盖率。Native 需要系统 C 工具链，不隐式跳过。
 
-**旧 `moonapi.mjs`、CRUD 与手写状态入口**仍使用原有有界 MoonBit 解析档（3.0 JSON、JSON 媒体和标量 path/query 等），不支持的约束继续拒绝。新增 `moonapi-standard.mjs` 的能力及缺口单独记录，不混淆入口。所有 HTTP 执行仍需显式 `--base`，不会按文档 servers 自动连接外部主机。3.1/3.2、GraphQL/gRPC 不属于当前 3.0 目标。
+**旧 `moonapi.mjs`、CRUD 与手写状态入口**仍使用原有有界 MoonBit 解析档（3.0 JSON、JSON 媒体和标量 path/query 等），不支持的约束继续拒绝。`moonapi-standard.mjs` 按原始版本选择 3.0 或原生 3.1/3.2 实现，不混淆入口。所有 HTTP 执行仍需显式 `--base`，不会按文档 servers 自动连接外部主机。GraphQL/gRPC 不属于当前范围。
 
-预算/故障说明见 [OPERATIONS](docs/OPERATIONS.md)，安全边界见 [SECURITY](SECURITY.md)。采用 [Apache-2.0](LICENSE)，保留 [NOTICE](NOTICE)。原创实现，依据 [OpenAPI 3.0.3](https://spec.openapis.org/oas/v3.0.3.html) 设计，不复制其他测试框架源码。
+预算/故障说明见 [OPERATIONS](docs/OPERATIONS.md)，安全边界见 [SECURITY](SECURITY.md)。采用 [Apache-2.0](LICENSE)，保留 [NOTICE](NOTICE)。标准参考包括 [OpenAPI 3.0.4](https://spec.openapis.org/oas/v3.0.4.html)、[3.1.2](https://spec.openapis.org/oas/v3.1.2.html)、[3.2.1](https://spec.openapis.org/oas/v3.2.1.html)；不复制其他测试框架源码，依赖与上游向量许可见[第三方清单](docs/THIRD_PARTY.md)。

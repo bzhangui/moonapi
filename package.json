@@ -1,6 +1,6 @@
 {
   "name": "moonapi-tool",
-  "version": "0.7.0-rc.1",
+  "version": "0.8.0-rc.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -13,6 +13,7 @@
     "demo": "node examples/demo.mjs",
     "demo:behavior": "node examples/behavior-demo.mjs",
     "demo:standard": "node examples/standard-demo.mjs",
+    "demo:modern": "node examples/modern-demo.mjs",
     "demo:advanced": "node examples/standard-advanced-demo.mjs",
     "demo:owned-reduction": "node examples/owned-reduction-demo.mjs",
     "demo:feedback": "node examples/feedback-demo.mjs"
@@ -27,6 +28,7 @@
     "ajv-formats": "3.0.1",
     "lossless-json": "4.3.3",
     "openapi-enforcer": "1.23.0",
+    "randexp": "0.5.3",
     "saxes": "6.0.0",
     "yaml": "2.9.1"
   }
