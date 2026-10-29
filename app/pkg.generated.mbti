@@ -4,6 +4,8 @@ package "bzhangui/moonapi/app"
 // Values
 pub fn dispatch(String) -> String
 
+pub fn modern_dispatch(String, (String, String) -> Bool, (String, String) -> Bool) -> String
+
 // Errors
 
 // Types and methods

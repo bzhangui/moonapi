@@ -6,7 +6,15 @@
 
 ## 已实现与用途
 
-### 当前候选源码：0.8.0-rc.1（暂不发布 Mooncakes / 运行包）
+### 当前源码：0.9.0，MoonBit 实例求值核心
+
+现代 JSON Schema 实例求值已从 Node 迁入 `core/modern_semantics.mbt`：精确十进制/整型、深相等、组合与条件、依赖、已评估属性/索引集合和预算均由 MoonBit 计算。Node 只为此求值入口提供已授权 URI 专门化、Schema 元数据检查、ECMA 正则及可选格式叶子适配；HTTP、文档和生成器仍有 Node 实现，不宣称全应用已迁移。冻结旧求值器仅保留在测试目录用于差分，不作为运行时回退。
+
+编译要求 **moonc ≥0.10.16**；本轮私有 SDK 为0.10.18，不改全局 SDK。`npm run validate` 检查版本、四目标核心、协议/业务回归和包隐私。新核心 API 用法、预算、语言审计及发布边界见 [0.9指南](docs/UPGRADE_0_9.md)。Mooncakes 发布结果以[发布记录](docs/PUBLICATION.md)为准，注册表核心库不等于附带 Node 依赖的完整客户端运行包。
+
+第一条的“主要实现语言”仍存在审查风险：代码字节统计中 JavaScript 明显更多，尚有 Node 生成、文档和协议逻辑。没有修改 Linguist 标记、隐藏源码或按自定比例宣称过关；`node scripts/language-audit.mjs` 可复核实际统计。本轮迁移的是一个真实运行核心，不是已经消除所有语言占比问题。
+
+### 0.8.0-rc.1 历史源码与验证（不是0.9测试结果）
 
 本轮将原生现代方言接入同一标准执行链：多文档身份与动态引用、2020-12 Schema 校验、有效/边界/无效候选与线上反解复核、精确数字和二进制；新增 QUERY/扩展方法、整体 querystring、Cookie/Set-Cookie、顺序流、位置/嵌套 Encoding、XML nodeType、Link Header 文本映射、webhooks 与 mTLS。元数据保留不等于自动登录、抓取外部资源或获得目标访问许可。
 
@@ -154,7 +162,7 @@ node bin/moonapi-behavior.mjs plan examples/spec.json --model examples/behavior.
 
 ## 安装和最小样例
 
-需要 [MoonBit](https://www.moonbitlang.com/download/) **moonc ≥ 0.10.15** 和 Node.js ≥ 22.19.0。本轮使用项目私有 2026-10-12 SDK 验证，不修改全局环境。新标准入口须先 `npm ci --ignore-scripts`，第三方依赖与许可见 [清单](docs/THIRD_PARTY.md)；旧纯 MoonBit 核心无需 npm 依赖。
+需要 [MoonBit](https://www.moonbitlang.com/download/) **moonc ≥ 0.10.16** 和 Node.js ≥ 22.19.0。本轮使用项目私有 2026-10-28 SDK（moonc0.10.18）验证，不修改全局环境。新标准入口须先 `npm ci --ignore-scripts`，第三方依赖与许可见 [清单](docs/THIRD_PARTY.md)；纯 MoonBit 核心无需 npm 依赖。可选私有 SDK 优先查找 `.local/toolchain-0.10.18`，再查 `.local/toolchain`，也可显式设置 `MOON_BIN` / `MOON_HOME`。
 
 ```sh
 git clone https://github.com/bzhangui/moonapi.git

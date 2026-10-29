@@ -1,8 +1,18 @@
-// Exact 2020-12 probe: Ajv validates schema metadata; evaluation retains original
-// decimals and explicit property/index sets. No network or filesystem resolver.
+// Host: metadata, granted URI specialization, ECMA regex and format leaves.
+// MoonBit owns instance evaluation, exact constraints and evaluated-location sets.
 import Ajv2020 from "ajv/dist/2020.js";
 import formats from "ajv-formats/dist/formats.js";
-import { numeric, decimal, compare, equal, shadow } from "./standard-value.mjs";
+import {
+  numeric,
+  decimal,
+  compare,
+  shadow,
+  parseExact,
+  stringifyExact,
+  setOwn,
+} from "./standard-value.mjs";
+import { loadCore } from "./runner.mjs";
+await loadCore();
 import {
   specializeModernResources,
   MODERN_DIALECTS,
@@ -91,25 +101,6 @@ function bounded(value, state = { nodes: 0 }, depth = 0) {
   } else if (value && typeof value === "object")
     for (const v of Object.values(value)) bounded(v, state, depth + 1);
 }
-function canonical(value) {
-  if (binary(value)) return "b" + Buffer.from(value).toString("hex");
-  if (numeric(value)) {
-    const [c, e] = decimal(value);
-    return "n" + c + "e" + e;
-  }
-  if (value === null) return "z";
-  if (typeof value === "string") return "s" + JSON.stringify(value);
-  if (typeof value === "boolean") return value ? "t" : "f";
-  if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
-  return (
-    "{" +
-    Object.keys(value)
-      .sort()
-      .map((k) => JSON.stringify(k) + ":" + canonical(value[k]))
-      .join(",") +
-    "}"
-  );
-}
 const type = (v) =>
   v === null
     ? "null"
@@ -120,28 +111,6 @@ const type = (v) =>
         : Array.isArray(v)
           ? "array"
           : typeof v;
-function numericRule(rule, value) {
-  if (has(rule, "minimum") && compare(value, rule.minimum) < 0) return false;
-  if (has(rule, "maximum") && compare(value, rule.maximum) > 0) return false;
-  if (
-    has(rule, "exclusiveMinimum") &&
-    compare(value, rule.exclusiveMinimum) <= 0
-  )
-    return false;
-  if (
-    has(rule, "exclusiveMaximum") &&
-    compare(value, rule.exclusiveMaximum) >= 0
-  )
-    return false;
-  if (has(rule, "multipleOf")) {
-    const [a, e] = decimal(value),
-      [b, f] = decimal(rule.multipleOf),
-      z = Math.min(e, f);
-    if ((a * 10n ** BigInt(e - z)) % (b * 10n ** BigInt(f - z)) !== 0n)
-      return false;
-  }
-  return true;
-}
 function openAPIAnnotations(schema, dialect) {
   const modern = dialect.replace(/#$/, "");
   if (!modern.startsWith("https://spec.openapis.org/oas/")) return;
@@ -336,203 +305,40 @@ export function compileExactModern(schema, documents = {}, options = {}) {
   };
   return (value) => {
     bounded(value);
-    let operations = 0;
-    const active = new Set();
-    const evaluate = (s, data, path = "", kind = "value", depth = 0) => {
-      if (++operations > 200000 || depth > 256) budget();
-      const result = {
-        valid: true,
-        props: new Set(),
-        items: new Set(),
-        errors: [],
-      };
-      const fail = (keyword) => {
-        result.valid = false;
-        if (result.errors.length < 16) result.errors.push(keyword);
-      };
-      // Annotations of an unsuccessful branch must never authorize data in its
-      // sibling unevaluated* keyword. Child-instance annotations stay local.
-      const merge = (r) => {
-        if (!r.valid) return;
-        for (const p of r.props) result.props.add(p);
-        for (const i of r.items) result.items.add(i);
-      };
-      const child = (sub, v = data, suffix = "", childKind = kind) =>
-        evaluate(sub, v, path + suffix, childKind, depth + 1);
-      if (s === false) fail("false schema");
-      else if (s !== true) {
-        if (s.$ref) {
-          if (!has(normalized.documents, s.$ref)) invalid();
-          const key = JSON.stringify([s.$ref, path, kind]);
-          if (active.has(key)) budget(); // unproductive same-instance cycle
-          active.add(key);
-          const r = child(normalized.documents[s.$ref]);
-          active.delete(key);
-          if (!r.valid) fail("$ref");
-          else merge(r);
-        }
-        const t = type(data);
-        if (s.type !== undefined) {
-          const ts = Array.isArray(s.type) ? s.type : [s.type];
-          if (
-            !ts.some(
-              (x) =>
-                x === t ||
-                (x === "integer" && t === "number" && decimal(data)[1] >= 0),
-            )
-          )
-            fail("type");
-        }
-        if (
-          directionPolicy === "reject-forbidden" &&
-          ((mode === "write" && s.readOnly === true) ||
-            (mode === "read" && s.writeOnly === true))
-        )
-          fail("direction");
-        if (has(s, "const") && (binary(data) || !equal(data, s.const)))
-          fail("const");
-        if (s.enum && (binary(data) || !s.enum.some((v) => equal(data, v))))
-          fail("enum");
-        if (numeric(data) && !numericRule(s, data)) fail("numeric");
-        if (assertFormats && s.format && !validFormat(s.format, data))
-          fail("format");
-        if (typeof data === "string") {
-          const length = [...data].length;
-          if (has(s, "minLength") && compare(length, s.minLength) < 0)
-            fail("minLength");
-          if (has(s, "maxLength") && compare(length, s.maxLength) > 0)
-            fail("maxLength");
-          if (has(s, "pattern") && !regex(s.pattern).test(data))
-            fail("pattern");
-        }
-        if (s.allOf)
-          for (const sub of s.allOf) {
-            const r = child(sub);
-            if (!r.valid) fail("allOf");
-            else merge(r);
-          }
-        for (const name of ["anyOf", "oneOf"])
-          if (s[name]) {
-            const passing = s[name]
-              .map((sub) => child(sub))
-              .filter((r) => r.valid);
-            if (!passing.length || (name === "oneOf" && passing.length !== 1))
-              fail(name);
-            else for (const r of passing) merge(r);
-          }
-        if (has(s, "not") && child(s.not).valid) fail("not");
-        if (has(s, "if")) {
-          const condition = child(s.if);
-          if (condition.valid) merge(condition);
-          const branch = condition.valid ? "then" : "else";
-          if (has(s, branch)) {
-            const r = child(s[branch]);
-            if (!r.valid) fail(branch);
-            else merge(r);
-          }
-        }
-        if (t === "object") {
-          const keys = Object.keys(data),
-            matched = new Set();
-          if (
-            has(s, "minProperties") &&
-            compare(keys.length, s.minProperties) < 0
-          )
-            fail("minProperties");
-          if (
-            has(s, "maxProperties") &&
-            compare(keys.length, s.maxProperties) > 0
-          )
-            fail("maxProperties");
-          for (const k of s.required ?? []) if (!has(data, k)) fail("required");
-          const property = (sub, k, name) => {
-            if (!child(sub, data[k], "/" + escape(k)).valid) fail(name);
-            else result.props.add(k);
-          };
-          for (const [k, sub] of Object.entries(s.properties ?? {}))
-            if (has(data, k)) {
-              matched.add(k);
-              property(sub, k, "properties");
-            }
-          for (const [pattern, sub] of Object.entries(
-            s.patternProperties ?? {},
-          ))
-            for (const k of keys)
-              if (regex(pattern).test(k)) {
-                matched.add(k);
-                property(sub, k, "patternProperties");
-              }
-          if (has(s, "additionalProperties"))
-            for (const k of keys)
-              if (!matched.has(k))
-                property(s.additionalProperties, k, "additionalProperties");
-          if (has(s, "propertyNames"))
-            for (const k of keys)
-              if (
-                !child(s.propertyNames, k, "/" + escape(k), "propertyName")
-                  .valid
-              )
-                fail("propertyNames");
-          for (const [k, names] of Object.entries(s.dependentRequired ?? {}))
-            if (has(data, k))
-              for (const name of names)
-                if (!has(data, name)) fail("dependentRequired");
-          for (const [k, sub] of Object.entries(s.dependentSchemas ?? {}))
-            if (has(data, k)) {
-              const r = child(sub);
-              if (!r.valid) fail("dependentSchemas");
-              else merge(r);
-            }
-          if (has(s, "unevaluatedProperties"))
-            for (const k of keys)
-              if (!result.props.has(k))
-                property(s.unevaluatedProperties, k, "unevaluatedProperties");
-        }
-        if (t === "array") {
-          if (has(s, "minItems") && compare(data.length, s.minItems) < 0)
-            fail("minItems");
-          if (has(s, "maxItems") && compare(data.length, s.maxItems) > 0)
-            fail("maxItems");
-          if (
-            s.uniqueItems &&
-            new Set(data.map(canonical)).size !== data.length
-          )
-            fail("uniqueItems");
-          const item = (sub, i, name) => {
-            if (!child(sub, data[i], "/" + i).valid) fail(name);
-            else result.items.add(i);
-          };
-          const prefix = s.prefixItems?.length ?? 0;
-          for (let i = 0; i < Math.min(prefix, data.length); i++)
-            item(s.prefixItems[i], i, "prefixItems");
-          if (has(s, "items"))
-            for (let i = prefix; i < data.length; i++)
-              item(s.items, i, "items");
-          if (has(s, "contains")) {
-            const passing = [];
-            for (let i = 0; i < data.length; i++)
-              if (child(s.contains, data[i], "/" + i).valid) passing.push(i);
-            if (
-              compare(passing.length, s.minContains ?? 1) < 0 ||
-              (has(s, "maxContains") &&
-                compare(passing.length, s.maxContains) > 0)
-            )
-              fail("contains");
-            else for (const i of passing) result.items.add(i);
-          }
-          if (has(s, "unevaluatedItems"))
-            for (let i = 0; i < data.length; i++)
-              if (!result.items.has(i))
-                item(s.unevaluatedItems, i, "unevaluatedItems");
-        }
+    const binaries = Object.create(null);
+    const encode = (x, pointer = "") => {
+      if (["undefined", "function", "symbol", "bigint"].includes(typeof x))
+        throw new Error("MODERN_SCHEMA_VALUE_NOT_JSON");
+      if (binary(x)) {
+        binaries[pointer] = Buffer.from(x).toString("hex");
+        return null;
       }
-      if (!result.valid) {
-        result.props.clear();
-        result.items.clear();
-      }
-      return result;
+      if (!x || typeof x !== "object" || numeric(x)) return x;
+      if (Array.isArray(x))
+        return x.map((v, i) => encode(v, pointer + "/" + i));
+      const out = Object.create(null);
+      for (const [k, v] of Object.entries(x))
+        setOwn(out, k, encode(v, pointer + "/" + escape(k)));
+      return out;
     };
-    const result = evaluate(normalized.schema, value);
-    return { valid: result.valid, errors: result.errors };
+    const input = stringifyExact({
+      schema: normalized.schema,
+      documents: normalized.documents,
+      data: encode(value),
+      binaries,
+      assertFormats,
+      mode,
+      directionPolicy,
+    });
+    if (Buffer.byteLength(input) > 8388608) budget();
+    const result = JSON.parse(
+      globalThis.__moonapi_modern(
+        input,
+        (p, text) => regex(p).test(text),
+        (name, json) => validFormat(name, parseExact(json)),
+      ),
+    );
+    if (result.error) throw new Error(result.error);
+    return result;
   };
 }

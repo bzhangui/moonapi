@@ -19,17 +19,17 @@ pub fn exact_decimal_sum(Json, Json) -> Bool raise TestError
 
 pub fn execution_transition(String, String) -> Json raise TestError
 
-pub fn feedback_choice(Json, Int) -> Json raise TestError
+pub fn feedback_choice(Json, Int32) -> Json raise TestError
 
 pub fn field(Json, String) -> Json
 
-pub fn generate_sequence(Json, Int, Int) -> Json raise TestError
+pub fn generate_sequence(Json, Int32, Int32) -> Json raise TestError
 
-pub fn generate_value(Json, Int) -> Json raise TestError
+pub fn generate_value(Json, Int32) -> Json raise TestError
 
 pub fn json_pointer(Json, String) -> Json raise TestError
 
-pub fn make_case(Operation, Int) -> Case raise TestError
+pub fn make_case(Operation, Int32) -> Case raise TestError
 
 pub fn model_assertions(Json, Json, Json) -> Finding raise TestError
 
@@ -37,21 +37,23 @@ pub fn model_effects(Json, Json) -> Json
 
 pub fn model_preconditions(Json, Json) -> Bool
 
+pub fn modern_validate(Json, Json, Json, Json, (String, String) -> Bool, (String, String) -> Bool, assert_formats? : Bool, mode? : String, direction? : String) -> Json raise
+
 pub fn operation(Spec, String) -> Operation raise TestError
 
 pub fn parse_openapi(String) -> Spec raise
 
-pub fn plan(Spec, seed? : Int, limit? : Int) -> Array[Case] raise TestError
+pub fn plan(Spec, seed? : Int32, limit? : Int32) -> Array[Case] raise TestError
 
-pub fn register_history(Int, Json) -> Json raise TestError
+pub fn register_history(Int32, Json) -> Json raise TestError
 
-pub fn resource_graph_plan(Json, Int, Int) -> Json raise TestError
+pub fn resource_graph_plan(Json, Int32, Int32) -> Json raise TestError
 
-pub fn resource_history(String, Int, Int, Json) -> Json raise TestError
+pub fn resource_history(String, Int32, Int32, Json) -> Json raise TestError
 
 pub fn resource_state_check(Json, Json) -> Json raise TestError
 
-pub fn scenario_case(Spec, Json, Json, seed? : Int) -> Case raise TestError
+pub fn scenario_case(Spec, Json, Json, seed? : Int32) -> Case raise TestError
 
 pub fn sequence_candidates(Json) -> Array[Json] raise TestError
 
@@ -59,17 +61,17 @@ pub fn shrink_candidates(Operation, Case) -> Array[Case] raise TestError
 
 pub fn standard_expression(String) -> Json raise TestError
 
-pub fn standard_oracle(Int, Bool, Bool) -> Json raise TestError
+pub fn standard_oracle(Int32, Bool, Bool) -> Json raise TestError
 
 pub fn standard_read_only(String) -> Bool
 
-pub fn standard_schedule(Json, Int, Int) -> Json raise TestError
+pub fn standard_schedule(Json, Int32, Int32) -> Json raise TestError
 
-pub fn standard_verdict(Int, Int, Int, Int, Bool) -> Json raise TestError
+pub fn standard_verdict(Int32, Int32, Int32, Int32, Bool) -> Json raise TestError
 
 pub fn text(Json) -> String raise TestError
 
-pub fn validate_response(Operation, Case, Int, Json, json_valid? : Bool) -> Finding
+pub fn validate_response(Operation, Case, Int32, Json, json_valid? : Bool) -> Finding
 
 pub fn validate_sequence(Json) -> Unit raise TestError
 
@@ -99,7 +101,7 @@ pub(all) struct Case {
   body : Json
   has_body : Bool
   negative : Bool
-  expected_status : Int
+  expected_status : Int32
 } derive(ToJson, @debug.Debug, @json.FromJson)
 pub fn Case::from_json(Json, @json.JsonPath) -> Self raise @json.JsonDecodeError
 pub fn Case::to_json(Self) -> Json

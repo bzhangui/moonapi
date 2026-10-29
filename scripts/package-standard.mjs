@@ -31,6 +31,7 @@ const allowed = [
   "docs/UPGRADE_0_6.md",
   "docs/UPGRADE_0_7.md",
   "docs/UPGRADE_0_8.md",
+  "docs/UPGRADE_0_9.md",
   "docs/VERSION_POLICY.md",
   "docs/QUALITY_REPORT.md",
   "docs/PUBLICATION.md",

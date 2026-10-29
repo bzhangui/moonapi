@@ -2,11 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { assertCompilerVersion } from "./compiler-version.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
+const sdkName = fs.existsSync(
+  path.join(root, ".local", "toolchain-0.10.18", "bin"),
+)
+  ? "toolchain-0.10.18"
+  : "toolchain";
 const local = path.join(
   root,
   ".local",
-  "toolchain",
+  sdkName,
   "bin",
   process.platform === "win32" ? "moon.exe" : "moon",
 );
@@ -43,23 +49,20 @@ export function run(cmd, args) {
         (r.signal || "none"),
     );
 }
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const nodeParts = process.versions.node.split(".").map(Number);
-  if (nodeParts[0] < 22 || (nodeParts[0] === 22 && nodeParts[1] < 19))
-    throw new Error("Node.js >= 22.19.0 required");
+export function versionCheck() {
   const v = spawnSync(moon, ["version", "--all"], {
     encoding: "utf8",
     env: moonEnv,
   });
-  if (
-    v.status !== 0 ||
-    !/moonc v0\.10\.(1[5-9]|[2-9][0-9])\b|moonc v0\.(1[1-9]|[2-9][0-9])\.|moonc v[1-9]\./.test(
-      v.stdout,
-    )
-  )
-    throw new Error(
-      "MoonBit compiler >= 0.10.15 required; install current stable release",
-    );
+  if (v.status !== 0) throw new Error("MoonBit compiler unavailable");
+  assertCompilerVersion(v.stdout);
+  return v.stdout.trim();
+}
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const nodeParts = process.versions.node.split(".").map(Number);
+  if (nodeParts[0] < 22 || (nodeParts[0] === 22 && nodeParts[1] < 19))
+    throw new Error("Node.js >= 22.19.0 required");
+  versionCheck();
   run(moon, ["update"]);
   run(moon, ["build", "--target", "js", "--release", "--deny-warn"]);
 }

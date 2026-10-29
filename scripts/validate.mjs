@@ -1,12 +1,6 @@
-import { run, moon, moonEnv } from "./build.mjs";
-import { spawnSync } from "node:child_process";
+import { run, moon, versionCheck } from "./build.mjs";
 import fs from "node:fs";
-const version = spawnSync(moon, ["version", "--all"], {
-  encoding: "utf8",
-  env: moonEnv,
-});
-if (version.status !== 0) throw new Error("Toolchain unavailable");
-console.log(version.stdout.trim());
+console.log(versionCheck());
 run(moon, ["update"]);
 run(moon, ["fmt", "--check"]);
 for (const target of ["js", "wasm", "wasm-gc", "native"]) {
@@ -52,6 +46,7 @@ run(moon, [
   "summary",
 ]);
 run(process.execPath, ["scripts/check-package.mjs"]);
+run(process.execPath, ["scripts/audit-public.mjs"]);
 console.log(
   // Publication is a separate authorized action; this only audits the archive.
   "All maintenance checks passed. Controlled API fixtures do not replace real-user pilots.",

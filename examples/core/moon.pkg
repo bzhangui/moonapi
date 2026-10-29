@@ -1,5 +1,6 @@
 import {
   "bzhangui/moonapi/core" @engine,
+  "moonbitlang/core/json",
 }
 
 pkgtype(kind: "executable")

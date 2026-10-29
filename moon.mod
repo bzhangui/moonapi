@@ -1,6 +1,6 @@
 name = "bzhangui/moonapi"
 
-version = "0.8.0-rc.1"
+version = "0.9.0"
 
 readme = "README.md"
 
