@@ -1,0 +1,26 @@
+{
+  "upstream": "https://github.com/json-schema-org/JSON-Schema-Test-Suite",
+  "commit": "89e83a74014617ffbe79a56d83d14d054cd11417",
+  "license": "../LICENSE",
+  "files": {
+    "type.json": "2123c408d9a516739378c5b2d35ac92079083d3d",
+    "const.json": "72ea3f042b663d8f6703f1bffd09f8b5295d721b",
+    "enum.json": "dbc5e0d3184a022d656f7c68f9c9d32b044204b9",
+    "multipleOf.json": "76fa4765beb293a54aeedf58130cd6845a79a217",
+    "maximum.json": "7eeab28771252e92efb29c3655cd2519034c7d74",
+    "minimum.json": "dc44052784c26a4abdbe32eec406de083e933da4",
+    "exclusiveMaximum.json": "05db23351bebd6b319a44950323afb9d5249e6eb",
+    "exclusiveMinimum.json": "00af9d7ff5da30f3c7f3d75c57fd37fd7cbe819a",
+    "uniqueItems.json": "4ea3bf985153a90a287e88e0239f328b5879418b",
+    "if-then-else.json": "2588a9ca1feea5a7760a8ffdac417e58d4b3f014",
+    "prefixItems.json": "0adfc069e3f153ccf2b1062a4615a7d6095c2bb7",
+    "contains.json": "08a00a753f7826aebfbd229f9cd00c073aea6b60",
+    "minContains.json": "ee72d7d6209289812e6ebc712aed4b49f8bccb1b",
+    "maxContains.json": "9a42b45d64eb2c5b7a08f7f801be1b0ec6480cfe",
+    "dependentRequired.json": "2baa38e9f488f8e1aff21857a577a5ca51355348",
+    "dependentSchemas.json": "1c5f0574a0910b7274797963e13f02dc618494cb",
+    "propertyNames.json": "84ca2b84e81381155f885eadcce79b17d901f029",
+    "unevaluatedProperties.json": "1995d0ea9b92d6589ee4ce316aad3d4381e23fa0",
+    "unevaluatedItems.json": "d8a7c1b5b4d603d74e072fbb71dc7a58703c4619"
+  }
+}

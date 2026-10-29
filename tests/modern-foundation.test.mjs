@@ -66,7 +66,7 @@ test("2020-12 foundation checks booleans, ref siblings, dependent properties, ev
     assert.equal((await probe(schema, invalid)).valid, false);
   }
 });
-test("dynamic references, annotation formats, no ambient resolution and exact-number refusal remain explicit", async () => {
+test("dynamic references, annotation formats, no ambient resolution and exact numeric identity remain explicit", async () => {
   const tree = {
     $id: "https://schema.invalid/tree",
     $dynamicAnchor: "node",
@@ -91,9 +91,23 @@ test("dynamic references, annotation formats, no ambient resolution and exact-nu
     probe({ $ref: "https://ungranted.invalid/private" }, 1),
     /INVALID_OR_UNGRANTED/,
   );
-  await assert.rejects(
-    probeModernSchema('{"const":9223372036854775807}', "9223372036854775807"),
-    /EXACT_NUMBER_UNSUPPORTED/,
+  assert.equal(
+    (
+      await probeModernSchema(
+        '{"const":9223372036854775807}',
+        "9223372036854775807",
+      )
+    ).valid,
+    true,
+  );
+  assert.equal(
+    (
+      await probeModernSchema(
+        '{"const":9223372036854775807}',
+        "9223372036854775806",
+      )
+    ).valid,
+    false,
   );
   assert.equal(
     (await probe({ readOnly: true, type: "integer" }, 1)).valid,

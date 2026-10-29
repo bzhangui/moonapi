@@ -10,4 +10,5 @@
 
 # Preserve the pinned upstream vectors byte-for-byte across checkouts.
 tests/vectors/draft4/*.json -text
+tests/vectors/draft2020-12/*.json -text
 tests/vectors/LICENSE -text
