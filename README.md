@@ -14,6 +14,8 @@
 
 第一条的“主要实现语言”仍存在审查风险：代码字节统计中 JavaScript 明显更多，尚有 Node 生成、文档和协议逻辑。没有修改 Linguist 标记、隐藏源码或按自定比例宣称过关；`node scripts/language-audit.mjs` 可复核实际统计。本轮迁移的是一个真实运行核心，不是已经消除所有语言占比问题。
 
+0.9.0核心库已正式发布：`moon add bzhangui/moonapi@0.9.0`；从注册表下载后的独立消费者四目标检查/构建/运行通过。深层Schema已改用显式任务机，不依赖宿主递归栈；修复提交 `3ae46d1` 的[三平台CI](https://github.com/bzhangui/moonapi/actions/runs/40896380854)全部通过，各409项Node回归、53核心×四目标。运行包仅本地验证，未公开上传。
+
 ### 0.8.0-rc.1 历史源码与验证（不是0.9测试结果）
 
 本轮将原生现代方言接入同一标准执行链：多文档身份与动态引用、2020-12 Schema 校验、有效/边界/无效候选与线上反解复核、精确数字和二进制；新增 QUERY/扩展方法、整体 querystring、Cookie/Set-Cookie、顺序流、位置/嵌套 Encoding、XML nodeType、Link Header 文本映射、webhooks 与 mTLS。元数据保留不等于自动登录、抓取外部资源或获得目标访问许可。
