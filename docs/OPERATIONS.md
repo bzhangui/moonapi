@@ -4,7 +4,7 @@
 
 ## 当前源码与操作边界
 
-当前候选0.10.0，Mooncakes已发布核心0.9.0，Node运行包本轮仅本地验证。先使用 `node bin/moonapi-project.mjs inspect your-openapi.yaml` 查看认证、依赖草案与覆盖缺口；不自动执行任何目标请求。接入、扩展权限和故障指南见 [0.10说明](UPGRADE_0_10.md)。
+当前源码和Mooncakes核心0.10.0，Node运行包本轮仅本地验证。先使用 `node bin/moonapi-project.mjs inspect your-openapi.yaml` 查看认证、依赖草案与覆盖缺口；不自动执行任何目标请求。接入、扩展权限和故障指南见 [0.10说明](UPGRADE_0_10.md)。
 
 0.8.0-rc.1 已接入原生 OpenAPI 3.1/3.2 标准执行链，规范核对基线为 3.1.2 / 3.2.1，不将新版 Schema 转写成 3.0。现代能力声明为 `implementation_status=native-standard`、`full_openapi_support=true`；它不是本次计划完成、第三方认证或全量业务保证，新源码也不是已经发布的 Mooncakes 或运行包。见 [0.8指南](UPGRADE_0_8.md)、[覆盖矩阵](OPENAPI_3_1_3_2_MATRIX.md)及[本轮证据](QUALITY_REPORT.md)。
 

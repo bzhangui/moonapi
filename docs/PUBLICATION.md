@@ -1,5 +1,16 @@
 # 发布与复现记录
 
+## 2026-10-31：0.10.0已发布，三平台及独立消费核验
+
+- 功能提交4cbafc0，发布前范围修复提交`337c389e04d06b236846ea9a797f39ce79b13a71`已推送公开main。移除Git凭据helper的远端查询仍返回该SHA；不是只确认已登录者可见。
+- [CI41213016908](https://github.com/bzhangui/moonapi/actions/runs/41213016908)的Ubuntu24.04、macOS、Windows全部success，使用moonc0.10.18，每平台437项Node、58不同核心×四目标、15组Native/JS对照、全部示例/覆盖/两类包验证。Linux另通过200操作规模、20轮耐久、FastAPI11组合与PocketBase两集合各三轮及临时数据清理。本机独立Windows删除限制另记，不由Linux结果覆盖。
+- 正式`moon publish --frozen`返回HTTP200；打包源码及解包后均通过moon check。注册表0.10.0为最新、yanked=false、Apache-2.0。上传ZIP与注册表checksum均为`d0595a97ce1385e2055c114c53a22d61216c6e1693793911311a0cca0d2ae179`。原0.9.0及更旧版本保留，不覆盖。
+- 从注册表下载到全新消费者，不复制本地依赖源：JS/Wasm/Wasm-GC/Native四目标check/build/run/test通过。五个可执行消费者包括新增planning_core，每目标2项公开API回归；示例断言验证新精确候选、依赖IR和覆盖调度实际可用，不只是元数据中有版本号。
+- 本机最终维护437 Node零失败/零跳过、58核心×四目标及标准包独立npm安装/重定位通过；两类本地包分别33与5176文件。私有标准包、参考日志、原始报告、Python环境、后端二进制、凭据和申报材料未上传；未创建公开运行包或Release。
+- 发布首次被隔离SDK的MOON_HOME登录配置阻断，没有产生版本；诊断后保留用户登录home，显式选择同一0.10.18的MOON_TOOLCHAIN_ROOT，官方CLI确认账户bzhangui后完成发布。未将凭据内容读入对话/日志或复制凭据，没有重新注册或修改全局SDK。SDK与登录home分离依据[官方路径实现](https://github.com/moonbitlang/moon/blob/main/crates/moonutil/src/moon_dir.rs)，不是跳过注册表权限检查。
+- 发布后的文档/状态补证会改变再次打包的字节；moon package清单核查可重建本地_build ZIP，不能再用它冒充原上传档。原始0.10.0制品从注册表校验缓存按上述checksum另行私有保留，不重新上传或覆盖同版本。
+- “MoonBit主要实现语言”仍有审查风险；本轮实质增加三个可消费计算API，不通过统计技巧宣称验收全部通过。源归档里的发布状态是打包前快照；当前GitHub状态/实时注册表与本节补证优先，不重复发布同一版本。官方验收结论、真实用户及长期生产验证不由上述测试保证。
+
 ## 2026-10-30：0.9.0 已发布，核心修复与消费已验证
 
 用户授权完整测试与隐私检查后推送公开main并发布Mooncakes0.9.0；没有授权创建公开Node/桌面运行包Release，故本轮只私有打包验证。申报书、凭据、语料、账本和原始报告不公开。

@@ -6,9 +6,11 @@
 
 ## 已实现与用途
 
-### 当前源码：0.10.0，接入、生成与可靠性候选
+### 当前源码：0.10.0，接入、生成与可靠性升级
 
-本轮增加安全接入草案、覆盖缺口解释及 MoonBit 精确数值候选、依赖 IR 与覆盖调度。待发布源码和本地验证包不等于已发布；Mooncakes 已发布核心库仍为 0.9.0，本轮经测试/隐私检查和CI后发布核心新版本，不公开运行包。使用步骤及分批结果见 [0.10 升级说明](docs/UPGRADE_0_10.md)，九条复核见 [验收状态](docs/ACCEPTANCE.md)，原始证据以维护记录为准。
+本轮增加安全接入草案、覆盖缺口解释及 MoonBit 精确数值候选、依赖 IR 与覆盖调度。**Mooncakes 核心库：0.10.0，已发布并完成下载后独立消费验证**；完整Node运行包仅本地验证，不公开上传。使用步骤及分批结果见 [0.10 升级说明](docs/UPGRADE_0_10.md)，九条复核见 [验收状态](docs/ACCEPTANCE.md)，精确提交/摘要见 [发布记录](docs/PUBLICATION.md)。源码归档中的发布状态仅是打包时快照，实时分发状态以注册表与发布记录为准。
+
+在你自己的MoonBit项目中添加计算核心：`moon add bzhangui/moonapi@0.10.0`。完整HTTP客户端请按以下源码安装步骤操作，不把核心依赖误当完整Node运行环境。
 
 ```sh
 npm ci --ignore-scripts
@@ -19,7 +21,7 @@ node bin/moonapi-project.mjs init examples/standard-spec.json --out .moonapi-pri
 node bin/moonapi-project.mjs run .moonapi-private/project.json --base http://127.0.0.1:8080
 ```
 
-### 已发布基础：0.9.0，MoonBit 实例求值核心
+### 计算核心与宿主边界
 
 现代 JSON Schema 实例求值已从 Node 迁入 `core/modern_semantics.mbt`：精确十进制/整型、深相等、组合与条件、依赖、已评估属性/索引集合和预算均由 MoonBit 计算。Node 只为此求值入口提供已授权 URI 专门化、Schema 元数据检查、ECMA 正则及可选格式叶子适配；HTTP、文档和生成器仍有 Node 实现，不宣称全应用已迁移。冻结旧求值器仅保留在测试目录用于差分，不作为运行时回退。
 
@@ -27,9 +29,9 @@ node bin/moonapi-project.mjs run .moonapi-private/project.json --base http://127
 
 第一条的“主要实现语言”仍存在审查风险：代码字节统计中 JavaScript 明显更多，尚有 Node 生成、文档和协议逻辑。没有修改 Linguist 标记、隐藏源码或按自定比例宣称过关；`node scripts/language-audit.mjs` 可复核实际统计。本轮迁移的是一个真实运行核心，不是已经消除所有语言占比问题。
 
-0.9.0核心库已正式发布：`moon add bzhangui/moonapi@0.9.0`；从注册表下载后的独立消费者四目标检查/构建/运行通过。深层Schema已改用显式任务机，不依赖宿主递归栈；修复提交 `3ae46d1` 的[三平台CI](https://github.com/bzhangui/moonapi/actions/runs/40896380854)全部通过，各409项Node回归、53核心×四目标。运行包仅本地验证，未公开上传。
+最终功能提交 `337c389` 的[三平台CI](https://github.com/bzhangui/moonapi/actions/runs/41213016908)全部通过，每平台437项Node回归、58个不同核心测试×四目标、15组Native/JS策略对照及示例/包审计。Linux另通过独立FastAPI/PocketBase、规模与20轮耐久；本机另做100轮受控耐久。0.10.0注册表独立消费者四目标检查/构建、五个示例及每目标2项公开API回归通过。此为受控证据，不是生产认证；Windows临时后端目录清理限制仍见维护记录。
 
-[历史源码与验证记录](docs/SOURCE_HISTORY.md) 已单独归档；下文只描述当前入口，不用历史测试结果证明本轮候选。
+[历史源码与验证记录](docs/SOURCE_HISTORY.md) 已单独归档；下文只描述当前入口，不用历史测试结果证明新版本。
 
 ### OpenAPI 测试生成与契约验证
 

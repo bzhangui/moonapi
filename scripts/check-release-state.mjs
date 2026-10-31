@@ -15,7 +15,7 @@ assert.match(
 );
 assert.ok(read("README.md").includes("当前源码：" + state.source));
 assert.ok(
-  read("README.md").includes("已发布核心库仍为 " + state.published_core),
+  read("README.md").includes("Mooncakes 核心库：" + state.published_core),
 );
 assert.ok(!read("README.md").includes("当前源码候选为 **0.8.0-rc.1**"));
 assert.ok(!read("workbench/index.html").includes("执行仍保持禁用"));
