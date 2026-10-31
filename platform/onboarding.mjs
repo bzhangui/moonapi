@@ -48,9 +48,13 @@ export function onboardingGuide(profiles, plan) {
   }
   const catalog = profiles.map(({ id }) => ({ id }));
   const ir = planningPolicy("dependency-ir", { catalog, edges });
+  const selectedScope = new Set(
+    (plan.operation_coverage ?? plan.cases).map((o) => o.operation_id),
+  );
   const safe = profiles
     .filter(
       (p) =>
+        selectedScope.has(p.id) &&
         isReadOnlyMethod(p.method) &&
         !p.authentication_required &&
         !p.request_required &&
@@ -68,6 +72,7 @@ export function onboardingGuide(profiles, plan) {
       observed_response_branches: 0,
       authentication_required: p.authentication_required,
       generation_blocked: plan.blockers.some((b) => b.operation_id === p.id),
+      outside_selected_document: !selectedScope.has(p.id),
       execution_observed: false,
     };
   });

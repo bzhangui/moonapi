@@ -30,6 +30,8 @@ inspect在受限工作线程校验文档、生成候选，不发送目标HTTP。
 
 ## MoonBit实际运行核心
 
+跨文档Links可进入依赖草案，但文档grant不是目标执行授权。外部操作不会自动加入初始化配置或只读预设，覆盖表用outside_selected_document标出；实际执行仍须显式选择与目标授权。
+
 core/planning.mbt的公开API在标准入口中实际调用，四目标和Native/JS对照保留：
 
 - numeric_candidate处理精确十进制格点、整数multipleOf与开边界，宿主只提供已经检查和专门化的约束，结果仍须完整Schema再验证。576组迁移算术对照不是任意约束可解证明。

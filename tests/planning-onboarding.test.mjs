@@ -54,6 +54,45 @@ test("operationRef declarations become reviewed IR edges without executing links
     ),
   );
 });
+test("granting a linked document does not automatically expand default execution scope", async () => {
+  const response = { description: "ok" },
+    externalURI = "https://granted.invalid/external.json";
+  const source = JSON.stringify({
+    openapi: "3.2.1",
+    info: { title: "root", version: "1" },
+    paths: {
+      "/start": {
+        get: {
+          operationId: "start",
+          responses: {
+            200: {
+              ...response,
+              links: {
+                next: { operationRef: externalURI + "#/paths/~1external/get" },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  const external = JSON.stringify({
+    openapi: "3.2.1",
+    info: { title: "granted", version: "1" },
+    paths: {
+      "/external": {
+        get: { operationId: "external", responses: { 200: response } },
+      },
+    },
+  });
+  const r = await inspectProject(source, {
+    documents: { [externalURI]: external },
+  });
+  assert.ok(r.onboarding.proposals.length > 0);
+  assert.deepEqual(r.readonly_default, ["start"]);
+  assert.deepEqual(r.onboarding.presets.readonly.operationIds, ["start"]);
+  assert.ok(r.onboarding.coverage.some((o) => o.outside_selected_document));
+});
 test("dependency IR exposes cycles, rejects dangling/duplicate IDs and unsafe versions are not silently migrated", () => {
   const catalog = [{ id: "a" }, { id: "b" }];
   const r = planningPolicy("dependency-ir", {

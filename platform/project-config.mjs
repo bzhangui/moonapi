@@ -8,9 +8,11 @@ import { onboardingGuide } from "./onboarding.mjs";
 import { explainBlockers } from "./failure-category.mjs";
 async function readonlyDefaults(engine) {
   const profiles = await engine.profiles();
+  const selectedScope = new Set(engine.description.operations.map((o) => o.id));
   return profiles
     .filter(
       (o) =>
+        selectedScope.has(o.id) &&
         isReadOnlyMethod(o.method) &&
         !o.request_required &&
         !o.authentication_required &&
