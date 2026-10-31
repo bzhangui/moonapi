@@ -1,5 +1,7 @@
 # 第三方依赖与许可
 
+0.10新增的独立集成环境使用FastAPI0.162.0（MIT）、Pydantic2.14.2/pydantic-core2.50.2（MIT）与Uvicorn0.54.0（BSD-3-Clause）。精确版本图见examples/fastapi/requirements.txt；只安装在专用私有venv用于测试，原许可保留在安装分发中，不复制其实现，也不把venv/wheel/后端二进制纳入Git、Mooncakes或Node包。传递依赖原许可以安装元数据为准；requirements不是SBOM或跨平台二进制可复现认证。自编合成业务示例采用本项目Apache-2.0。原生OpenAPI导出机制参考[FastAPI官方教程](https://fastapi.tiangolo.com/tutorial/first-steps/)，不是官方对本项目的认证。
+
 本机工作台另使用官方主题变量 `@primer/primitives` **11.8.1**（MIT），配合 `@primer/css` 的组件样式。原许可随锁定依赖保留，不以手写外观冒充官方组件。
 
 本项目 Apache-2.0；原有 `LICENSE`、`NOTICE`、MoonBit 标准库许可保持。新增标准适配通过 npm 安装下列库，不复制其源码为原创实现。使用 `npm ci --ignore-scripts` 按 `package-lock.json` 固定完整依赖图与完整性摘要；需要 Node >=22.19.0（Swagger Parser 的最低版本要求）。

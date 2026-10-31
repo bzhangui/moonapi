@@ -6,9 +6,13 @@ export function within(signal, action, code = "ADAPTER_DEADLINE") {
     aborted = () => reject(new Error(code));
     signal?.addEventListener("abort", aborted, { once: true });
   });
-  return Promise.race([Promise.resolve().then(action), cancelled]).finally(() =>
-    signal?.removeEventListener("abort", aborted),
-  );
+  return Promise.race([
+    Promise.resolve().then(() => {
+      if (signal?.aborted) throw new Error(code);
+      return action();
+    }),
+    cancelled,
+  ]).finally(() => signal?.removeEventListener("abort", aborted));
 }
 export function transportAdapter(adapter) {
   if (adapter === undefined)

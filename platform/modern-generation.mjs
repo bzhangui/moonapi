@@ -1,6 +1,7 @@
 // Bounded candidates, not a claim that arbitrary satisfiability is decidable.
 // Every accepted candidate is checked by the native modern dialect evaluator.
 import RandExp from "randexp";
+import { planningPolicy } from "./planning.mjs";
 import { compileExactModern } from "./modern-exact.mjs";
 import { specializeModernResources } from "./modern-resources.mjs";
 import {
@@ -380,41 +381,31 @@ export function modernSchemaTools(prepared) {
                 : compare(merged.maximum, merged.exclusiveMaximum) < 0
                   ? merged.maximum
                   : merged.exclusiveMaximum;
-        let step = merged.multipleOf ?? (t === "integer" ? 1 : number("0.1"));
-        if (t === "integer") {
-          const [a, e] = decimal(step);
-          if (e < 0) {
-            let x = a,
-              y = 10n ** BigInt(-e);
-            while (y) {
-              const z = x % y;
-              x = y;
-              y = z;
-            }
-            step = number(String(a / x));
-          }
-        }
-        const candidate = lower ?? upper ?? 0,
-          [x, e] = decimal(candidate),
-          [a, f] = decimal(step),
-          z = Math.min(e, f),
-          value = x * 10n ** BigInt(e - z),
-          unit = a * 10n ** BigInt(f - z);
-        let q = value / unit;
-        const up = lower !== undefined || upper === undefined;
-        if ((up && value % unit > 0n) || (!up && value % unit < 0n))
-          q += up ? 1n : -1n;
-        if (
-          value % unit === 0n &&
-          (up
-            ? merged.exclusiveMinimum !== undefined &&
-              compare(candidate, merged.exclusiveMinimum) === 0
-            : merged.exclusiveMaximum !== undefined &&
-              compare(candidate, merged.exclusiveMaximum) === 0)
-        )
-          q += up ? 1n : -1n;
-        q += BigInt(n % 32) * (up ? 1n : -1n);
-        return number(String(q * unit) + "e" + z);
+        const parts = (value) => {
+          if (value === undefined) return null;
+          const [coefficient, exponent] = decimal(value);
+          return { coefficient: String(coefficient), exponent };
+        };
+        const result = planningPolicy("numeric-candidate", {
+          input: {
+            lower: parts(lower),
+            upper: parts(upper),
+            step: parts(
+              merged.multipleOf ?? (t === "integer" ? 1 : number("0.1")),
+            ),
+            integer: t === "integer",
+            offset: n % 32,
+            exclusive_lower:
+              lower !== undefined &&
+              merged.exclusiveMinimum !== undefined &&
+              compare(lower, merged.exclusiveMinimum) === 0,
+            exclusive_upper:
+              upper !== undefined &&
+              merged.exclusiveMaximum !== undefined &&
+              compare(upper, merged.exclusiveMaximum) === 0,
+          },
+        });
+        return number(result.coefficient + "e" + result.exponent);
       }
       if (t === "string") {
         if (merged.pattern) {

@@ -939,7 +939,7 @@ function responseContract({ id, status, headers, body, empty = false }) {
   const valid = contentValid(content[key], body, "read");
   return { valid, code: valid ? "" : "response_schema" };
 }
-function profiles() {
+async function profiles() {
   const summary = (schema) => {
     const s = modernPrepared ? modernTools.shape(schema) : effective(schema);
     return {
@@ -949,31 +949,66 @@ function profiles() {
       required: s.required || [],
     };
   };
-  return [...operations].map(([id, { op, route, method }]) => ({
-    id,
-    path: route,
-    method: wireMethod({ method }),
-    parameters: op.allParameters.map((p) => ({
-      name: p.name,
-      in: p.in,
-      required: !!p.required,
-      ...summary(p.schema),
-    })),
-    requests: Object.entries(op.requestBody?.content || {}).map(
-      ([media, c]) => ({ media, ...summary(c.schema) }),
-    ),
-    responses: Object.entries(op.responses ?? {}).map(([status, r]) => ({
-      status,
-      location: !!Object.keys(r.headers || {}).find(
-        (h) => h.toLowerCase() === "location",
-      ),
-      links: Object.keys(r.links || {}),
-      content: Object.entries(r.content || {}).map(([media, c]) => ({
-        media,
-        ...summary(c.schema),
+  const out = [];
+  let linkCount = 0;
+  for (const [id, record] of operations) {
+    if (out.length >= 256) fail("STANDARD_PROFILE_BUDGET");
+    const { op, route, method } = record,
+      responses = [];
+    for (const [status, r] of Object.entries(op.responses ?? {})) {
+      const link_targets = [];
+      for (const link of Object.values(r.links || {})) {
+        if (++linkCount > 1024) fail("STANDARD_PROFILE_LINK_BUDGET");
+        const target = await targetOperation(
+          link,
+          record.sourceURI ?? ROOT_URI,
+        );
+        if (target)
+          link_targets.push({
+            operation_id: target,
+            bindings: Object.entries(link.parameters ?? {})
+              .filter(
+                ([, v]) => typeof v === "string" && v.startsWith("$response."),
+              )
+              .map(([parameter, expression]) => ({ parameter, expression })),
+          });
+      }
+      responses.push({
+        status,
+        location: Object.keys(r.headers || {}).some(
+          (h) => h.toLowerCase() === "location",
+        ),
+        links: Object.keys(r.links || {}),
+        link_targets,
+        content: Object.entries(r.content || {}).map(([media, c]) => ({
+          media,
+          ...summary(c.schema),
+        })),
+      });
+    }
+    const security =
+      op.security ?? (record.definition ?? definition).security ?? [];
+    out.push({
+      id,
+      path: route,
+      method: wireMethod({ method }),
+      authentication_required:
+        security.length > 0 &&
+        !security.some((s) => Object.keys(s).length === 0),
+      request_required: !!op.requestBody?.required,
+      parameters: op.allParameters.map((p) => ({
+        name: p.name,
+        in: p.in,
+        required: !!p.required,
+        ...summary(p.schema),
       })),
-    })),
-  }));
+      requests: Object.entries(op.requestBody?.content || {}).map(
+        ([media, c]) => ({ media, ...summary(c.schema) }),
+      ),
+      responses,
+    });
+  }
+  return out;
 }
 function wireRequest({ id, test }) {
   const record = operations.get(id);
@@ -1634,7 +1669,7 @@ parentPort.on("message", async (message) => {
               : action === "stream-abort"
                 ? streamState.abort(args.stream_id)
                 : action === "profiles"
-                  ? profiles()
+                  ? await profiles()
                   : action === "variants"
                     ? variants(args)
                     : action === "request"

@@ -7,6 +7,7 @@ import { VERSION, Engine } from "./runner.mjs";
 import { parseDefinition } from "./definition.mjs";
 import { inspectDialect } from "./dialects.mjs";
 import { inspectProject, runProject } from "./project-config.mjs";
+import { ProjectInspector } from "./inspection-cache.mjs";
 import { publicReport } from "./ci-tools.mjs";
 import {
   privateDirectory,
@@ -54,6 +55,7 @@ export async function startWorkbench({
     profileDirectory = privateDirectory(profileDirectory, { create: true });
   }
   const token = randomBytes(32).toString("base64url");
+  const inspector = new ProjectInspector();
   let inspecting = false;
   let origin,
     job = { state: "idle" },
@@ -151,7 +153,7 @@ export async function startWorkbench({
               blocker: "INVALID_DOCUMENT_OR_SCHEMA",
             });
           return send(200, {
-            ...(await inspectProject(body.source, {
+            ...(await inspector.inspect(body.source, {
               documents: body.documents ?? {},
             })),
             dialect,
@@ -257,6 +259,7 @@ export async function startWorkbench({
     token,
     async close() {
       closing = true;
+      inspector.clear();
       await engine?.close();
       server.closeAllConnections();
       await new Promise((r) => server.close(r));

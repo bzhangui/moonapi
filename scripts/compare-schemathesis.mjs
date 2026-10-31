@@ -6,6 +6,8 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { StandardEngine } from "../platform/standard.mjs";
+import { VERSION } from "../platform/runner.mjs";
+import assert from "node:assert/strict";
 const argument = process.argv[2];
 if (!argument) throw new Error("Pass Schemathesis 4.32.5 executable");
 const tool = fs.existsSync(argument) ? path.resolve(argument) : argument;
@@ -59,9 +61,15 @@ const source = JSON.stringify(spec),
 fs.writeFileSync(filename, source, { flag: "wx" });
 const results = [];
 for (const fault of ["", "schema", "server", "negative_accepted"]) {
-  let requests = 0;
+  let requests = 0,
+    budgetExceeded = false;
   const s = http.createServer((req, res) => {
     requests++;
+    if (requests > 32) {
+      budgetExceeded = true;
+      res.destroy();
+      return;
+    }
     const kind = new URL(req.url, "http://127.0.0.1").searchParams.get("kind"),
       valid = ["a", "b"].includes(kind);
     if (!valid && fault !== "negative_accepted") {
@@ -89,6 +97,12 @@ for (const fault of ["", "schema", "server", "negative_accepted"]) {
     const start = Date.now(),
       moon = await engine.run(base),
       moonRequests = requests;
+    assert.equal(
+      budgetExceeded,
+      false,
+      "MoonAPI comparison request budget exceeded",
+    );
+    assert.equal(moon.passed, !fault, "MoonAPI seeded control mismatch");
     requests = 0;
     const args = [
       "run",
@@ -130,7 +144,7 @@ for (const fault of ["", "schema", "server", "negative_accepted"]) {
       const timer = setTimeout(() => {
         child.kill();
         reject(new Error("Reference comparison timeout"));
-      }, 60000);
+      }, 10000);
       child.on("error", (error) => {
         clearTimeout(timer);
         reject(error);
@@ -147,6 +161,16 @@ for (const fault of ["", "schema", "server", "negative_accepted"]) {
     );
     if (![0, 1].includes(result.code))
       throw new Error("Reference CLI failed; inspect private comparison log");
+    assert.equal(
+      budgetExceeded,
+      false,
+      "Reference comparison request budget exceeded",
+    );
+    assert.equal(
+      result.code,
+      fault ? 1 : 0,
+      "Reference seeded control mismatch",
+    );
     results.push({
       fixture: fault || "healthy",
       expected_failure: !!fault,
@@ -170,13 +194,16 @@ for (const fault of ["", "schema", "server", "negative_accepted"]) {
 }
 const report = {
   reference: "Schemathesis 4.32.5",
-  moonapi: "0.4.0",
+  moonapi: VERSION,
   seed: 73,
   per_request_timeout_ms: 2000,
   phase: "coverage",
   synthetic: true,
   real_user_pilot: false,
   superiority_claim: false,
+  equal_request_budget: false,
+  shared_hard_request_ceiling: 32,
+  per_tool_execution_deadline_ms: 10000,
   scope:
     "Same HTTP fixture/contract/authorized operations; generators, case count and shrinking differ. Not a performance ranking.",
   results,

@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { assertCompilerVersion } from "./compiler-version.mjs";
+import { saveProcessFailure } from "../platform/process-receipt.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const sdkName = fs.existsSync(
   path.join(root, ".local", "toolchain-0.10.18", "bin"),
@@ -30,12 +31,30 @@ export const moonEnv = {
     : {}),
 };
 export function run(cmd, args) {
+  const started = Date.now();
   const r = spawnSync(cmd, args, {
     cwd: root,
     env: moonEnv,
     stdio: "inherit",
     shell: false,
   });
+  if (r.error || r.status !== 0) {
+    try {
+      saveProcessFailure(r, path.join(root, ".local/process-failures"), {
+        tool: /^(?:moon|node)(?:\.exe)?$/i.test(path.basename(cmd))
+          ? path.basename(cmd).replace(/\.exe$/i, "")
+          : "other",
+        elapsedMs: Date.now() - started,
+      });
+      console.error(
+        "Private redacted process-failure receipt saved; no automatic retry.",
+      );
+    } catch {
+      console.error(
+        "Private process-failure receipt unavailable; original command still failed.",
+      );
+    }
+  }
   if (r.error) throw r.error;
   if (r.status !== 0)
     throw new Error(

@@ -13,3 +13,5 @@ coverage/
 *.key
 *.pfx
 *.p12
+__pycache__/
+*.pyc

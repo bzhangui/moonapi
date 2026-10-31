@@ -3,6 +3,22 @@ fn command(input : String) -> Json raise {
   let arguments = @engine.bounded_json(input)
   let action = @engine.text(@engine.field(arguments, "action"))
   match action {
+    "numeric-candidate" =>
+      return @engine.numeric_candidate(@engine.field(arguments, "input"))
+    "dependency-ir" =>
+      return @engine.dependency_ir(
+        @engine.field(arguments, "catalog"),
+        @engine.field(arguments, "edges"),
+      )
+    "coverage-schedule" => {
+      let seed : Int32 = @json.from_json(@engine.field(arguments, "seed"))
+      let limit : Int32 = @json.from_json(@engine.field(arguments, "limit"))
+      return @engine.coverage_schedule(
+        @engine.field(arguments, "catalog"),
+        seed,
+        limit,
+      )
+    }
     "feedback-choice" => {
       let seed : Int32 = @json.from_json(@engine.field(arguments, "seed"))
       return @engine.feedback_choice(@engine.field(arguments, "counts"), seed)

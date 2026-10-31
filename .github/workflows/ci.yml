@@ -49,6 +49,22 @@ jobs:
         run: node scripts/validate.mjs
       - name: Portable runtime bundle
         run: node scripts/package.mjs
+      - name: Controlled scale and bounded endurance (not production evidence)
+        if: runner.os == 'Linux'
+        run: |
+          node scripts/scale.mjs --operations 200
+          node --expose-gc scripts/soak.mjs --rounds 20
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6, pinned commit
+        if: runner.os == 'Linux'
+        with:
+          python-version: "3.14"
+      - name: Independent framework exported OpenAPI and business controls
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/moonapi-fastapi"
+          "$RUNNER_TEMP/moonapi-fastapi/bin/python" -m pip install --disable-pip-version-check -r examples/fastapi/requirements.txt
+          node scripts/interop-fastapi.mjs --python "$RUNNER_TEMP/moonapi-fastapi/bin/python"
       - name: Independent locked-install standard runtime bundle
         run: node scripts/package-standard.mjs
       - name: Independent PocketBase 0.40.5 SQLite integration (Linux)

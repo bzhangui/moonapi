@@ -1,6 +1,7 @@
 import { run, moon, versionCheck } from "./build.mjs";
 import fs from "node:fs";
 console.log(versionCheck());
+run(process.execPath, ["scripts/check-release-state.mjs"]);
 run(moon, ["update"]);
 run(moon, ["fmt", "--check"]);
 for (const target of ["js", "wasm", "wasm-gc", "native"]) {
@@ -11,6 +12,7 @@ for (const target of ["js", "wasm", "wasm-gc", "native"]) {
   run(moon, ["run", "examples/behavior_core", "--target", target]);
   run(moon, ["run", "examples/crud_core", "--target", target]);
   run(moon, ["run", "examples/workflow_core", "--target", target]);
+  run(moon, ["run", "examples/planning_core", "--target", target]);
 }
 run(process.execPath, ["scripts/build.mjs"]);
 run(process.execPath, ["scripts/policy-parity.mjs"]);

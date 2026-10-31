@@ -124,6 +124,19 @@ $("inspect").addEventListener(
       $("plan-summary").textContent = r.execution_supported
         ? `已生成 ${r.generated_cases} 个候选，${r.blockers.length} 个阻断项。执行结果仍取决于选定接口及实际返回。`
         : `${r.dialect?.version} 结构检查：${r.dialect?.structurally_valid ? "通过" : "存在问题"}。尚未验证现代方言运行兼容性，执行禁用。`;
+      if (r.onboarding) {
+        const guide = document.createElement("p");
+        guide.className = "note";
+        guide.textContent = `接入建议：${r.onboarding.presets.readonly.operationIds.length} 个无需必填参数或认证的只读入口；${r.onboarding.proposals.length} 条依赖草案；${r.onboarding.gates.authentication.length} 个操作需认证。依赖仅供审阅，不自动授予写入或清理权限。`;
+        $("plan").append(guide);
+        const detail = document.createElement("details"),
+          summary = document.createElement("summary"),
+          pre = document.createElement("pre");
+        summary.textContent = "查看依赖、分层及覆盖缺口（尚未执行）";
+        pre.textContent = JSON.stringify(r.onboarding, null, 2);
+        detail.append(summary, pre);
+        $("plan").append(detail);
+      }
       $("run").disabled = !r.execution_supported;
       notice(
         r.execution_supported

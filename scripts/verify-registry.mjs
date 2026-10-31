@@ -48,6 +48,7 @@ for (const [enabled, example] of [
   [atLeast(2), "behavior_core"],
   [atLeast(3), "crud_core"],
   [atLeast(4), "workflow_core"],
+  [atLeast(10), "planning_core"],
 ]) {
   if (!enabled) continue;
   const destination = path.join(consumer, example);

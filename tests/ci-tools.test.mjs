@@ -52,6 +52,29 @@ test("historical failures prioritize only the same document and granted referenc
     [],
   );
 });
+test("modern spec changes conservatively select every QUERY and extension method, never falsely exclude dynamic dependencies", () => {
+  const a = {
+    openapi: "3.2.1",
+    info: { title: "controlled", version: "1" },
+    paths: {
+      "/a": {
+        query: { operationId: "query" },
+        additionalOperations: { FETCH: { operationId: "fetch" } },
+      },
+      "/b": { get: { operationId: "read" } },
+    },
+  };
+  assert.deepEqual(contractDiff(a, a).affected, []);
+  const b = structuredClone(a);
+  b.paths["/b"].get.description = "changed";
+  const r = contractDiff(a, b);
+  assert.deepEqual(r.affected, ["query", "fetch", "read"]);
+  assert.equal(r.full_suite_required, true);
+  assert.equal(
+    r.modern_dependency_analysis,
+    "conservative-full-suite-on-change",
+  );
+});
 test("all public formats whitelist metadata, escape malicious fields, and fail empty/incomplete runs", () => {
   const secret = "TOKEN<svg onload=evil>",
     report = {

@@ -7,6 +7,29 @@ import { moon, moonEnv } from "./build.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 await loadCore();
 const vectors = [
+  {
+    action: "numeric-candidate",
+    input: {
+      lower: { coefficient: "9223372036854775807", exponent: 0 },
+      step: { coefficient: "1", exponent: 0 },
+      offset: 1,
+      integer: true,
+    },
+  },
+  {
+    action: "dependency-ir",
+    catalog: [{ id: "create" }, { id: "read" }],
+    edges: [{ from: "create", to: "read", kind: "link" }],
+  },
+  {
+    action: "coverage-schedule",
+    catalog: [
+      { id: "a", count: 3, visits: 9 },
+      { id: "b", count: 2, visits: 0 },
+    ],
+    seed: 42,
+    limit: 3,
+  },
   { action: "standard-read-only", method: "QUERY" },
   { action: "standard-read-only", method: "query" },
   { action: "feedback-choice", counts: [1, 0, 2], seed: 42 },

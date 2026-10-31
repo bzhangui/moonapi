@@ -16,7 +16,7 @@ const methods = [
 ];
 const operations = (d) =>
   Object.entries(d.paths || {}).flatMap(([route, item]) =>
-    methods
+    [...methods, ...(/^3\.2\./.test(d.openapi) ? ["query"] : [])]
       .filter((m) => item[m])
       .map((m) => ({
         id: item[m].operationId || m.toUpperCase() + " " + route,
@@ -24,7 +24,20 @@ const operations = (d) =>
         method: m,
         operation: item[m],
         item,
-      })),
+      }))
+      .concat(
+        /^3\.2\./.test(d.openapi)
+          ? Object.entries(item.additionalOperations ?? {}).map(
+              ([method, operation]) => ({
+                id: operation.operationId || method + " " + route,
+                route,
+                method,
+                operation,
+                item,
+              }),
+            )
+          : [],
+      ),
   );
 export function contractDiff(
   before,
@@ -42,7 +55,7 @@ export function contractDiff(
       typeof d.paths !== "object" ||
       Array.isArray(d.paths) ||
       typeof d.openapi !== "string" ||
-      !/^3\.0\.\d+$/.test(d.openapi)
+      !/^3\.[012]\.\d+$/.test(d.openapi)
     )
       throw new Error("DIFF_UNCERTAIN_DOCUMENT");
   const a = operations(before),
@@ -51,6 +64,8 @@ export function contractDiff(
       Object.fromEntries(
         Object.entries(d).filter(([k]) => !["paths", "components"].includes(k)),
       );
+  const modern =
+    !/^3\.0\./.test(before.openapi) || !/^3\.0\./.test(after.openapi);
   let uncertain = [before, after].some((d) =>
     Object.values(d.paths).some((item) => item?.$ref !== undefined),
   );
@@ -60,6 +75,7 @@ export function contractDiff(
     (Object.hasOwn(value, "discriminator") ||
       Object.values(value).some(hasDiscriminator));
   const closure = (item, document) => {
+    if (modern) return canonicalDefinition(item);
     const refs = new Map(),
       seen = new Set();
     let visits = 0;
@@ -93,6 +109,7 @@ export function contractDiff(
   const closuresA = new Map(a.map((o) => [o.id, closure(o.item, before)])),
     closuresB = new Map(b.map((o) => [o.id, closure(o.item, after)]));
   const global =
+    (modern && canonicalDefinition(before) !== canonicalDefinition(after)) ||
     uncertain ||
     !before.components !== !after.components ||
     canonicalDefinition(before.components?.securitySchemes ?? {}) !==
@@ -121,6 +138,9 @@ export function contractDiff(
     affected,
     removed: a.filter((x) => !b.some((y) => x.id === y.id)).map((x) => x.id),
     full_suite_required: global,
+    modern_dependency_analysis: modern
+      ? "conservative-full-suite-on-change"
+      : "not-applicable",
     policy:
       "Lossless JSON/YAML and transitive local-reference impact; global policy, new component namespace, changed external documents or uncertain references select all. Advisory selection is not conformance proof.",
   };

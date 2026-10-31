@@ -148,6 +148,7 @@ export class StandardEngine {
       "transport",
       "intentStore",
       "callbackTLS",
+      "priorCoverage",
     ];
     if (
       !options ||
@@ -172,6 +173,22 @@ export class StandardEngine {
       linkDepth: 4,
       ...options,
     };
+    if (
+      settings.priorCoverage !== undefined &&
+      (!settings.priorCoverage ||
+        typeof settings.priorCoverage !== "object" ||
+        Array.isArray(settings.priorCoverage) ||
+        ![Object.prototype, null].includes(
+          Object.getPrototypeOf(settings.priorCoverage),
+        ) ||
+        Object.keys(settings.priorCoverage).length > 256 ||
+        Object.values(settings.priorCoverage).some(
+          (v) => !Number.isInteger(v) || v < 0 || v > 1000000,
+        ))
+    )
+      throw new Error("STANDARD_COVERAGE_INPUT");
+    if (settings.priorCoverage)
+      settings.priorCoverage = Object.freeze({ ...settings.priorCoverage });
     for (const [key, min, max] of [
       ["seed", 0, 1000000],
       ["limit", 1, 256],
@@ -240,6 +257,7 @@ export class StandardEngine {
         allowCallbacks: settings.allowCallbacks,
         callbackTimeout: settings.callbackTimeout,
         linkDepth: settings.linkDepth,
+        priorCoverage: settings.priorCoverage,
       }),
       writable: false,
     });
@@ -259,6 +277,12 @@ export class StandardEngine {
         documents: settings.documents,
         documentURI: settings.documentURI,
       });
+      if (
+        Object.keys(settings.priorCoverage ?? {}).some(
+          (id) => !engine.#description.operations.some((o) => o.id === id),
+        )
+      )
+        throw new Error("STANDARD_COVERAGE_OPERATION");
       return engine;
     } catch (error) {
       await engine.close();
@@ -302,7 +326,15 @@ export class StandardEngine {
             verified.push(value);
           }
           variants.set(op.id, verified);
-          catalog.push({ id: op.id, count: verified.length });
+          catalog.push({
+            id: op.id,
+            count: verified.length,
+            visits:
+              this.options.priorCoverage &&
+              Object.hasOwn(this.options.priorCoverage, op.id)
+                ? this.options.priorCoverage[op.id]
+                : 0,
+          });
           if (!verified.length)
             blockers.push({ operation_id: op.id, code: "no_generated_case" });
         } catch (error) {
@@ -315,7 +347,13 @@ export class StandardEngine {
           });
         }
       }
-      const scheduled = policy("standard-schedule", {
+      if (
+        Object.keys(this.options.priorCoverage ?? {}).some(
+          (id) => !this.#description.operations.some((o) => o.id === id),
+        )
+      )
+        throw new Error("STANDARD_COVERAGE_OPERATION");
+      const scheduled = policy("coverage-schedule", {
         catalog,
         seed: this.options.seed,
         limit: this.options.limit,
@@ -331,6 +369,17 @@ export class StandardEngine {
         blockers,
         truncated: scheduled.truncated,
         available: scheduled.available,
+        operation_coverage: this.#description.operations.map((op) => ({
+          operation_id: op.id,
+          generated: variants.get(op.id)?.length ?? 0,
+          selected: cases.filter((c) => c.operation_id === op.id).length,
+          observed:
+            this.options.priorCoverage &&
+            Object.hasOwn(this.options.priorCoverage, op.id)
+              ? this.options.priorCoverage[op.id]
+              : 0,
+          blocked: blockers.some((b) => b.operation_id === op.id),
+        })),
         ...capabilitiesFor(this.#description.openapi_version),
       };
       return cloneExact(this.#plan);
@@ -810,6 +859,8 @@ export class StandardEngine {
                   operation_id: operation.id,
                   method: operation.method,
                   role: customPlan?.role || "default",
+                  documentBinding: this.#documentBinding,
+                  environmentBinding: intentEnvironmentBinding(base),
                   signal,
                 }),
               "STANDARD_CREDENTIAL_DEADLINE",

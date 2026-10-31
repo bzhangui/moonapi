@@ -14,7 +14,11 @@ import { publicReport } from "../platform/ci-tools.mjs";
 import { diagnoseReport } from "../platform/diagnostics.mjs";
 try {
   const [action, file, ...args] = process.argv.slice(2);
-  if (action === "diagnose" && file && !args.length) {
+  if (action === "inspect" && file && !args.length) {
+    console.log(
+      stringifyExact(await inspectProject(readTextInput(file, 1048576))),
+    );
+  } else if (action === "diagnose" && file && !args.length) {
     console.log(
       JSON.stringify(diagnoseReport(parseExact(readPrivate(file))), null, 2),
     );

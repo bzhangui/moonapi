@@ -4,12 +4,17 @@ import { ownedResourceWorkflow } from "./workflow-templates.mjs";
 import { parseExact } from "./standard-value.mjs";
 import { Engine } from "./runner.mjs";
 import { isReadOnlyMethod } from "./standard-method.mjs";
+import { onboardingGuide } from "./onboarding.mjs";
+import { explainBlockers } from "./failure-category.mjs";
 async function readonlyDefaults(engine) {
   const profiles = await engine.profiles();
   return profiles
     .filter(
       (o) =>
-        isReadOnlyMethod(o.method) && !o.parameters.some((p) => p.required),
+        isReadOnlyMethod(o.method) &&
+        !o.request_required &&
+        !o.authentication_required &&
+        !o.parameters.some((p) => p.required),
     )
     .map((o) => o.id);
 }
@@ -17,6 +22,7 @@ export async function inspectProject(source, options = {}) {
   const engine = await StandardEngine.open(source, options);
   try {
     const plan = await engine.plan();
+    const profiles = await engine.profiles();
     return {
       operations: engine.description.operations.map((o) => ({
         id: o.id,
@@ -26,6 +32,8 @@ export async function inspectProject(source, options = {}) {
       generated_cases: plan.cases.length,
       blockers: plan.blockers,
       readonly_default: await readonlyDefaults(engine),
+      onboarding: onboardingGuide(profiles, plan),
+      diagnostic_summary: explainBlockers(plan.blockers),
     };
   } finally {
     await engine.close();

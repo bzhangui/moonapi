@@ -11,7 +11,11 @@ pub fn bounded_json(String) -> Json raise
 
 pub fn capture_values(Json, Json, Json) -> Json raise TestError
 
+pub fn coverage_schedule(Json, Int32, Int32) -> Json raise TestError
+
 pub fn crud_plan(Spec, String, String, String, String) -> Json raise TestError
+
+pub fn dependency_ir(Json, Json) -> Json raise TestError
 
 pub fn exact_decimal_relation(Json, Json, String) -> Bool raise TestError
 
@@ -38,6 +42,8 @@ pub fn model_effects(Json, Json) -> Json
 pub fn model_preconditions(Json, Json) -> Bool
 
 pub fn modern_validate(Json, Json, Json, Json, (String, String) -> Bool, (String, String) -> Bool, assert_formats? : Bool, mode? : String, direction? : String) -> Json raise
+
+pub fn numeric_candidate(Json) -> Json raise TestError
 
 pub fn operation(Spec, String) -> Operation raise TestError
 
